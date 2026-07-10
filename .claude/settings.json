@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx eslint *)",
+      "Bash(npx vite build *)",
+      "Bash(curl -s http://localhost:*)",
+      "Bash(pnpm test)",
+      "Bash(pnpm typecheck)",
+      "PowerShell(pnpm test)",
+      "PowerShell(pnpm typecheck)"
+    ]
+  }
+}
