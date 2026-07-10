@@ -7,7 +7,11 @@
       "Bash(pnpm test)",
       "Bash(pnpm typecheck)",
       "PowerShell(pnpm test)",
-      "PowerShell(pnpm typecheck)"
+      "PowerShell(pnpm typecheck)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Set-Location C:\\BerryPOS\\BerryPOS)",
+      "PowerShell(Set-Location C:\\BerryPOS\\BerryPOS; pnpm typecheck; if ($?) { pnpm test })"
     ]
   }
 }
