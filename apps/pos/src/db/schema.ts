@@ -35,6 +35,14 @@ export const products = sqliteTable(
     unitPriceCents: integer("unit_price_cents").notNull(),
     taxCodes: text("tax_codes", { mode: "json" }).$type<string[]>().notNull(),
     active: integer("active", { mode: "boolean" }).notNull(),
+    /**
+     * "cloud" rows are replaced by catalog snapshots; "local" rows were
+     * registered at this device and survive snapshots until the cloud
+     * adopts them (a snapshot carrying the same id supersedes).
+     */
+    source: text("source", { enum: ["cloud", "local"] })
+      .notNull()
+      .default("cloud"),
   },
   (t) => [index("idx_products_scale_code").on(t.scaleItemCode)],
 );

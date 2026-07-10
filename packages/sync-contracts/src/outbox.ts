@@ -6,6 +6,7 @@ import {
   SaleInputSchema,
   StockMovementSchema,
 } from "@berrypos/domain";
+import { CatalogProductSchema } from "./downstream.js";
 import { EventEnvelopeSchema } from "./envelope.js";
 
 /**
@@ -58,12 +59,31 @@ export const CashSessionClosedSchema = EventEnvelopeSchema.extend({
   close: CashSessionCloseInputSchema,
 });
 
+/**
+ * A product registered at the register (alta rápida). The cloud adds it to
+ * the tenant catalog; once a later snapshot includes it, the store's local
+ * copy is superseded.
+ */
+export const ProductCreatedSchema = EventEnvelopeSchema.extend({
+  type: z.literal("product_created"),
+  product: CatalogProductSchema,
+});
+
+/** A new barcode assigned at the register to an existing product. */
+export const ProductBarcodeAddedSchema = EventEnvelopeSchema.extend({
+  type: z.literal("product_barcode_added"),
+  productId: z.string().min(1),
+  barcode: z.string().min(1),
+});
+
 export const OutboxEventSchema = z.discriminatedUnion("type", [
   SaleCompletedSchema,
   StockMovementRecordedSchema,
   CashMovementRecordedSchema,
   CashSessionOpenedSchema,
   CashSessionClosedSchema,
+  ProductCreatedSchema,
+  ProductBarcodeAddedSchema,
 ]);
 export type OutboxEvent = z.input<typeof OutboxEventSchema>;
 

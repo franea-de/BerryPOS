@@ -23,6 +23,18 @@ export interface PosBackend {
   scan(code: string): ScanResult;
   /** Quote + settle + persist. Throws if the tender doesn't cover the total. */
   checkout(cart: Cart, payments: PaymentInput[]): CheckoutResult;
+  /**
+   * Register a product at the register (alta rápida) and return it as a
+   * scan result so it lands in the cart immediately.
+   */
+  createProduct(draft: NewProductDraft): ScanResult;
+}
+
+export interface NewProductDraft {
+  name: string;
+  barcode: string;
+  unitPriceCents: number;
+  isWeighable: boolean;
 }
 
 export interface CheckoutResult {
@@ -67,13 +79,13 @@ export class MemoryBackend implements PosBackend {
   readonly taxCatalog = DEMO_TAXES;
   readonly promotions = DEMO_PROMOTIONS;
   readonly receipts: CheckoutResult[] = [];
-  /** The demo products, exposed for the quick-pick buttons. */
-  readonly products = DEMO_PRODUCTS;
+  /** The demo products plus register-created ones (quick-pick buttons). */
+  readonly products: DemoProduct[] = [...DEMO_PRODUCTS];
 
   scan(code: string): ScanResult {
     const scale = parseScaleEan13(code);
     if (scale) {
-      const product = DEMO_PRODUCTS.find(
+      const product = this.products.find(
         (p) => p.scaleItemCode === scale.itemCode && p.active,
       );
       if (!product) return { kind: "not_found" };
@@ -81,12 +93,29 @@ export class MemoryBackend implements PosBackend {
         ? { kind: "weighed", product: toRow(product), qtyMilli: scale.weightQtyMilli }
         : { kind: "priced", product: toRow(product), priceCents: scale.priceCents };
     }
-    const product = DEMO_PRODUCTS.find(
+    const product = this.products.find(
       (p) => p.barcodes.includes(code) && p.active,
     );
     return product
       ? { kind: "product", product: toRow(product) }
       : { kind: "not_found" };
+  }
+
+  createProduct(draft: NewProductDraft): ScanResult {
+    if (this.products.some((p) => p.barcodes.includes(draft.barcode))) {
+      throw new Error(`El código ${draft.barcode} ya está asignado a otro producto`);
+    }
+    const product: DemoProduct = {
+      id: crypto.randomUUID(),
+      name: draft.name,
+      barcodes: [draft.barcode],
+      isWeighable: draft.isWeighable,
+      unitPriceCents: draft.unitPriceCents,
+      taxCodes: ["IVA19"],
+      active: true,
+    };
+    this.products.push(product);
+    return { kind: "product", product: toRow(product) };
   }
 
   checkout(cart: Cart, payments: PaymentInput[]): CheckoutResult {
@@ -118,5 +147,6 @@ function toRow(p: DemoProduct): Extract<ScanResult, { kind: "product" }>["produc
     unitPriceCents: p.unitPriceCents,
     taxCodes: p.taxCodes,
     active: p.active,
+    source: "cloud",
   };
 }

@@ -10,13 +10,36 @@ import { cents, qtyMilli, type Cents, type QtyMilli } from "./money.js";
  * convention, so it is configuration, not code.
  */
 
-export function isValidEan13(code: string): boolean {
-  if (!/^\d{13}$/.test(code)) return false;
+/** Standard EAN-13 check digit for a 12-digit body. */
+export function ean13CheckDigit(body12: string): number {
+  if (!/^\d{12}$/.test(body12)) {
+    throw new Error(`EAN-13 body must be 12 digits, got "${body12}"`);
+  }
   let sum = 0;
   for (let i = 0; i < 12; i++) {
-    sum += Number(code[i]) * (i % 2 === 0 ? 1 : 3);
+    sum += Number(body12[i]) * (i % 2 === 0 ? 1 : 3);
   }
-  return (10 - (sum % 10)) % 10 === Number(code[12]);
+  return (10 - (sum % 10)) % 10;
+}
+
+export function isValidEan13(code: string): boolean {
+  if (!/^\d{13}$/.test(code)) return false;
+  return ean13CheckDigit(code.slice(0, 12)) === Number(code[12]);
+}
+
+/**
+ * In-store EAN-13 for products that arrive without a factory barcode
+ * (print-and-stick). Prefix "04" is GS1 restricted-distribution, safely
+ * outside the scale range 20-29, so it always scans as a regular product.
+ */
+export function generateInternalEan13(
+  random: () => number = Math.random,
+): string {
+  const digits = Array.from({ length: 10 }, () =>
+    Math.floor(random() * 10),
+  ).join("");
+  const body = `04${digits}`;
+  return body + ean13CheckDigit(body);
 }
 
 const prefixList = z

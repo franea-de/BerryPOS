@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import type { PaymentInput } from "@berrypos/domain";
+import { ean13CheckDigit, type PaymentInput } from "@berrypos/domain";
 import {
   addScan,
   EMPTY_CART,
@@ -8,7 +8,8 @@ import {
   updateLine,
   type Cart,
 } from "../cart.js";
-import { MemoryBackend, type CheckoutResult } from "./backend.js";
+import { MemoryBackend, type CheckoutResult, type NewProductDraft } from "./backend.js";
+import RegisterProduct from "./RegisterProduct.js";
 
 const backend = new MemoryBackend();
 
@@ -32,6 +33,7 @@ export default function App() {
   const [paying, setPaying] = useState(false);
   const [cashText, setCashText] = useState("");
   const [receipt, setReceipt] = useState<CheckoutResult | null>(null);
+  const [registering, setRegistering] = useState<string | null>(null);
   const scanRef = useRef<HTMLInputElement>(null);
 
   const quote = useMemo(
@@ -55,7 +57,8 @@ export default function App() {
     try {
       const result = backend.scan(trimmed);
       if (result.kind === "not_found") {
-        flash(`Código no encontrado: ${trimmed}`);
+        // Unknown code: offer to register the product on the spot.
+        setRegistering(trimmed);
         return;
       }
       setReceipt(null);
@@ -63,6 +66,15 @@ export default function App() {
     } catch (e) {
       flash(e instanceof Error ? e.message : "Error de escaneo");
     }
+  }
+
+  function registerAndAdd(draft: NewProductDraft) {
+    const result = backend.createProduct(draft);
+    setRegistering(null);
+    setReceipt(null);
+    setCart((c) => addScan(c, result));
+    flash(`Producto registrado: ${draft.name}`);
+    scanRef.current?.focus();
   }
 
   function quickAdd(barcodeOrScale: string) {
@@ -107,6 +119,9 @@ export default function App() {
               onKeyDown={(e) => e.key === "Enter" && handleScan()}
             />
             <button onClick={handleScan}>Agregar</button>
+            <button className="new-product-btn" onClick={() => setRegistering("")}>
+              ➕ Nuevo producto
+            </button>
           </div>
 
           <div className="quick-grid">
@@ -296,6 +311,17 @@ export default function App() {
           </div>
         </section>
       </main>
+
+      {registering !== null && (
+        <RegisterProduct
+          initialCode={registering}
+          onSave={registerAndAdd}
+          onCancel={() => {
+            setRegistering(null);
+            scanRef.current?.focus();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -303,7 +329,5 @@ export default function App() {
 /** Build a valid weight-embedded EAN-13 for the demo quick buttons. */
 function demoScaleCode(itemCode: string, grams: number): string {
   const body = `20${itemCode}${String(grams).padStart(5, "0")}`;
-  let sum = 0;
-  for (let i = 0; i < 12; i++) sum += Number(body[i]) * (i % 2 === 0 ? 1 : 3);
-  return body + String((10 - (sum % 10)) % 10);
+  return body + ean13CheckDigit(body);
 }

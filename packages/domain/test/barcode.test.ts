@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isValidEan13, parseScaleEan13 } from "../src/barcode.js";
+import {
+  ean13CheckDigit,
+  generateInternalEan13,
+  isValidEan13,
+  parseScaleEan13,
+} from "../src/barcode.js";
 
 describe("isValidEan13", () => {
   it("accepts codes with a correct check digit", () => {
@@ -11,6 +16,24 @@ describe("isValidEan13", () => {
     expect(isValidEan13("4006381333932")).toBe(false);
     expect(isValidEan13("123")).toBe(false);
     expect(isValidEan13("40063813339XX")).toBe(false);
+  });
+});
+
+describe("generateInternalEan13", () => {
+  it("produces valid in-store codes outside the scale range", () => {
+    let seed = 5;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+    for (let i = 0; i < 200; i++) {
+      const code = generateInternalEan13(rnd);
+      expect(code).toMatch(/^04\d{11}$/);
+      expect(isValidEan13(code)).toBe(true);
+      // Never parses as a scale code: it's a regular product barcode.
+      expect(parseScaleEan13(code)).toBeNull();
+    }
+  });
+
+  it("check digit helper rejects malformed bodies", () => {
+    expect(() => ean13CheckDigit("123")).toThrow("12 digits");
   });
 });
 

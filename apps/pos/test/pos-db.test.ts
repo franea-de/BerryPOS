@@ -7,7 +7,9 @@ import { OutboxEventSchema, type CatalogSnapshot } from "@berrypos/sync-contract
 import * as schema from "../src/db/schema.js";
 import type { DeviceContext, PosDb } from "../src/db/context.js";
 import {
+  addProductBarcode,
   applyCatalogSnapshot,
+  createProduct,
   findProductByScan,
   getCatalogRevision,
 } from "../src/db/catalog.js";
@@ -103,6 +105,102 @@ describe("catalog", () => {
     expect(weighed.qtyMilli).toBe(1525);
 
     expect(findProductByScan(db, "9999999999994").kind).toBe("not_found");
+  });
+});
+
+describe("product registration at the register", () => {
+  const NEW_PRODUCT = {
+    id: "0d6a2cbe-9f7d-4a1a-8a44-bbbbbbbbbbbb",
+    name: "Galletas surtidas",
+    barcode: "7809876543217",
+    unitPriceCents: 1490,
+    isWeighable: false,
+    taxCodes: ["IVA19"],
+  };
+
+  it("registers a scanned unknown product and it becomes sellable", () => {
+    expect(findProductByScan(db, NEW_PRODUCT.barcode).kind).toBe("not_found");
+
+    const r = createProduct(db, CTX, NEW_PRODUCT);
+    expect(r.alreadyExists).toBe(false);
+    expect(r.product.source).toBe("local");
+
+    const scan = findProductByScan(db, NEW_PRODUCT.barcode);
+    if (scan.kind !== "product") throw new Error("expected product");
+    expect(scan.product.name).toBe("Galletas surtidas");
+
+    const event = getPendingEvents(db).find((e) => e.type === "product_created");
+    if (event?.type !== "product_created") throw new Error("expected event");
+    expect(event.product.barcodes).toEqual([NEW_PRODUCT.barcode]);
+  });
+
+  it("is idempotent by id and rejects a taken barcode", () => {
+    createProduct(db, CTX, NEW_PRODUCT);
+    expect(createProduct(db, CTX, NEW_PRODUCT).alreadyExists).toBe(true);
+    expect(() =>
+      createProduct(db, CTX, {
+        ...NEW_PRODUCT,
+        id: "0d6a2cbe-9f7d-4a1a-8a44-cccccccccccc",
+        barcode: "7801234567897", // already the soda's
+      }),
+    ).toThrow("already assigned");
+  });
+
+  it("assigns an extra barcode to an existing product", () => {
+    const r = addProductBarcode(db, CTX, {
+      productId: "soda",
+      barcode: "0412345678905",
+    });
+    expect(r.alreadyAssigned).toBe(false);
+    expect(
+      addProductBarcode(db, CTX, { productId: "soda", barcode: "0412345678905" })
+        .alreadyAssigned,
+    ).toBe(true);
+    expect(() =>
+      addProductBarcode(db, CTX, { productId: "rice", barcode: "0412345678905" }),
+    ).toThrow("already assigned");
+    expect(() =>
+      addProductBarcode(db, CTX, { productId: "ghost", barcode: "0499999999996" }),
+    ).toThrow("does not exist");
+
+    const scan = findProductByScan(db, "0412345678905");
+    if (scan.kind !== "product") throw new Error("expected product");
+    expect(scan.product.id).toBe("soda");
+  });
+
+  it("locally registered products survive catalog snapshots", () => {
+    createProduct(db, CTX, NEW_PRODUCT);
+    applyCatalogSnapshot(db, { ...SNAPSHOT, revision: 2 });
+
+    // Cloud products replaced, the local one still scans.
+    expect(findProductByScan(db, NEW_PRODUCT.barcode).kind).toBe("product");
+    expect(findProductByScan(db, "7801234567897").kind).toBe("product");
+  });
+
+  it("a snapshot carrying the same id supersedes the local copy", () => {
+    createProduct(db, CTX, NEW_PRODUCT);
+    applyCatalogSnapshot(db, {
+      ...SNAPSHOT,
+      revision: 2,
+      products: [
+        ...SNAPSHOT.products,
+        {
+          id: NEW_PRODUCT.id,
+          name: "Galletas surtidas 250g", // cloud normalized the name
+          barcodes: [NEW_PRODUCT.barcode],
+          isWeighable: false,
+          unitPriceCents: 1590,
+          taxCodes: ["IVA19"],
+          active: true,
+        },
+      ],
+    });
+
+    const scan = findProductByScan(db, NEW_PRODUCT.barcode);
+    if (scan.kind !== "product") throw new Error("expected product");
+    expect(scan.product.name).toBe("Galletas surtidas 250g");
+    expect(scan.product.source).toBe("cloud");
+    expect(scan.product.unitPriceCents).toBe(1590);
   });
 });
 

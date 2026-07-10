@@ -1,0 +1,1 @@
+ALTER TABLE `products` ADD `source` text DEFAULT 'cloud' NOT NULL;
