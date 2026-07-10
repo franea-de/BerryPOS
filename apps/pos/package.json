@@ -1,0 +1,26 @@
+{
+  "name": "@berrypos/pos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@berrypos/domain": "workspace:*",
+    "@berrypos/sync-contracts": "workspace:*",
+    "drizzle-orm": "^0.44.2",
+    "zod": "^4.0.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "better-sqlite3": "^12.2.0",
+    "drizzle-kit": "^0.31.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}
