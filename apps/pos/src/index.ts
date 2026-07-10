@@ -5,3 +5,4 @@ export * from "./db/sales.js";
 export * from "./db/cash.js";
 export * from "./db/stock.js";
 export * from "./db/outbox.js";
+export * from "./cart.js";
