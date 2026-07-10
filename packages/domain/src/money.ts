@@ -113,3 +113,31 @@ export function allocateProportional(
 export function sumCents(values: readonly Cents[]): Cents {
   return cents(values.reduce<number>((a, b) => a + b, 0));
 }
+
+export type RoundingMode = "nearest" | "up" | "down";
+
+/**
+ * Round an amount to a multiple of `unitCents`. This is cash rounding for
+ * currencies whose smallest circulating coin is bigger than the minor unit
+ * (e.g. round to 10 or 50 when there are no 1-cent coins). `nearest` uses the
+ * system-wide half-away-from-zero rule.
+ */
+export function roundToUnit(
+  amountCents: Cents,
+  unitCents: number,
+  mode: RoundingMode = "nearest",
+): Cents {
+  assertSafeInt(amountCents, "amountCents");
+  assertSafeInt(unitCents, "unitCents");
+  if (unitCents <= 0) {
+    throw new RangeError(`unitCents must be > 0, got ${unitCents}`);
+  }
+  const ratio = amountCents / unitCents;
+  const units =
+    mode === "nearest"
+      ? roundHalfAwayFromZero(ratio)
+      : mode === "up"
+        ? Math.ceil(ratio)
+        : Math.floor(ratio);
+  return cents(units * unitCents);
+}
