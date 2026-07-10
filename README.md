@@ -9,8 +9,8 @@ Sistema POS SaaS **local-first**, multi-tenant y multi-vertical (minimarket, com
 
 | Fase | Estado |
 |---|---|
-| 1. Fundación: monorepo + dominio (dinero, impuestos, venta) | 🚧 en curso |
-| 2. POS minimarket (Tauri + SQLite) | pendiente |
+| 1. Fundación: monorepo + dominio (dinero, impuestos, venta, pagos, caja, promos, inventario) | ✅ completa |
+| 2. POS minimarket (Tauri + SQLite) | 🚧 siguiente |
 | 3. Nube SaaS (API multi-tenant + sync + panel) | pendiente |
 | 4. IA v1 (copiloto de soporte, reportes en lenguaje natural) | pendiente |
 | 5. Restaurante (KDS, comandas, recetas) | pendiente |
