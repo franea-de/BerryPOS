@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   BootstrapData,
   PosBackend,
+  RecentSale,
   ShiftCloseResult,
   UserSummary,
 } from "./backend.js";
@@ -40,6 +41,30 @@ export default function ShiftView({ backend, boot, user, refresh }: Props) {
   const [closing, setClosing] = useState(false);
   const [result, setResult] = useState<ShiftCloseResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [sales, setSales] = useState<RecentSale[]>([]);
+
+  async function loadSales() {
+    try {
+      setSales(await backend.recentSales());
+    } catch {
+      setSales([]);
+    }
+  }
+  useEffect(() => {
+    void loadSales();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boot]);
+
+  async function voidSale(saleId: string) {
+    try {
+      await backend.voidSale({ saleId, voidedBy: user.id });
+      await loadSales();
+      await refresh();
+      flash("Venta anulada");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "No se pudo anular");
+    }
+  }
 
   function flash(text: string) {
     setMessage(text);
@@ -239,6 +264,30 @@ export default function ShiftView({ backend, boot, user, refresh }: Props) {
           </div>
         </>
       )}
+
+      <div className="shift-panel">
+        <h2>Ventas de hoy</h2>
+        {sales.length === 0 && <p className="cart-empty">Sin ventas todavía</p>}
+        {sales.map((s) => (
+          <div key={s.id} className={`cart-line ${s.voidedAt ? "voided" : ""}`}>
+            <div className="cart-line-info">
+              <span className="cart-line-name">
+                {new Date(s.createdAt).toLocaleTimeString("es-PE")} —{" "}
+                {money(s.totalCents)}
+              </span>
+              <span className="cart-line-detail">
+                {s.methods.map((m) => METHOD_LABEL[m] ?? m).join(" + ")}
+                {s.voidedAt ? " · ANULADA" : ""}
+              </span>
+            </div>
+            {!s.voidedAt && (
+              <button className="void-btn" onClick={() => void voidSale(s.id)}>
+                Anular
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
 
       {message && <div className="flash">{message}</div>}
     </main>

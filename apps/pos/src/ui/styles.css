@@ -290,6 +290,15 @@ body {
 
 .no-shift-hint { color: #ffb3c4; font-size: 13px; text-align: center; }
 
+.quick-stock.out { color: #ffb3c4; }
+.void-btn {
+  padding: 9px 14px; font-size: 13px; border: 1px solid var(--danger);
+  border-radius: var(--radius); background: transparent; color: #ffb3c4;
+  cursor: pointer; min-height: 44px; align-self: flex-start;
+}
+.void-btn:hover { background: #4a2530; }
+.cart-line.voided { opacity: 0.5; }
+
 /* Tablet / portrait touch monitors: stack the two panels. */
 @media (max-width: 900px) {
   .pos-main { grid-template-columns: 1fr; overflow-y: auto; }

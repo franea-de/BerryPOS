@@ -69,6 +69,17 @@ export const ProductCreatedSchema = EventEnvelopeSchema.extend({
   product: CatalogProductSchema,
 });
 
+/**
+ * A charged sale was voided (anulada). The cloud reverses it the same way
+ * the store did: compensating stock/cash movements, never deletion.
+ */
+export const SaleVoidedSchema = EventEnvelopeSchema.extend({
+  type: z.literal("sale_voided"),
+  saleId: z.uuid(),
+  voidedBy: z.string().min(1),
+  reason: z.string().optional(),
+});
+
 /** A new barcode assigned at the register to an existing product. */
 export const ProductBarcodeAddedSchema = EventEnvelopeSchema.extend({
   type: z.literal("product_barcode_added"),
@@ -78,6 +89,7 @@ export const ProductBarcodeAddedSchema = EventEnvelopeSchema.extend({
 
 export const OutboxEventSchema = z.discriminatedUnion("type", [
   SaleCompletedSchema,
+  SaleVoidedSchema,
   StockMovementRecordedSchema,
   CashMovementRecordedSchema,
   CashSessionOpenedSchema,

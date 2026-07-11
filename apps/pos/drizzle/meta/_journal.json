@@ -15,6 +15,13 @@
       "when": 1783659603244,
       "tag": "0001_illegal_magdalene",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783798763931,
+      "tag": "0002_sweet_exiles",
+      "breakpoints": true
     }
   ]
 }

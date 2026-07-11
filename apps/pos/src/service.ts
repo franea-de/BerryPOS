@@ -31,7 +31,12 @@ import {
   openCashSession,
   recordCashMovement,
 } from "./db/cash.js";
-import { recordSale } from "./db/sales.js";
+import {
+  listRecentSales,
+  recordSale,
+  voidSale,
+  type RecentSale,
+} from "./db/sales.js";
 import {
   getDailyCashierSummary,
   getSessionSalesSummary,
@@ -259,6 +264,26 @@ export class PosService {
       quote: { totals: r.totals, promotions: quote.promotions },
       settlement: r.settlement,
     };
+  }
+
+  /** Void a charged sale: stock returns, cash refunds from the open drawer. */
+  voidSale(params: { saleId: string; voidedBy: string; reason?: string }): {
+    alreadyVoided: boolean;
+  } {
+    const open = getOpenSession(this.db);
+    return voidSale(this.db, this.ctx, {
+      saleId: params.saleId,
+      voidedBy: params.voidedBy,
+      currentSessionId: open?.id ?? null,
+      ...(params.reason ? { reason: params.reason } : {}),
+    });
+  }
+
+  /** Today's sales, newest first (the void screen). */
+  recentSales(): RecentSale[] {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return listRecentSales(this.db, { sinceIso: start.toISOString() });
   }
 
   private requireOpenSession() {

@@ -19,6 +19,7 @@ import type {
   UserSummary,
 } from "../service.js";
 import type { CashierDaySummary } from "../db/reports.js";
+import type { RecentSale } from "../db/sales.js";
 
 export type {
   BootstrapData,
@@ -29,6 +30,7 @@ export type {
   ShiftCloseResult,
   UserSummary,
   CashierDaySummary,
+  RecentSale,
 };
 
 export interface ReceiveStockInput {
@@ -67,6 +69,12 @@ export interface PosBackend {
   }): Promise<unknown>;
   closeShift(input: { countedCents: number }): Promise<ShiftCloseResult>;
   dailySummary(): Promise<{ cashiers: CashierDaySummary[]; dayIso: string }>;
+  recentSales(): Promise<RecentSale[]>;
+  voidSale(input: {
+    saleId: string;
+    voidedBy: string;
+    reason?: string;
+  }): Promise<{ alreadyVoided: boolean }>;
 }
 
 const SERVER_URL = "http://127.0.0.1:1421";
@@ -116,6 +124,12 @@ export class HttpBackend implements PosBackend {
   dailySummary() {
     return this.call<{ cashiers: CashierDaySummary[]; dayIso: string }>("GET", "/summary/today");
   }
+  recentSales() {
+    return this.call<RecentSale[]>("GET", "/sales/recent");
+  }
+  voidSale(input: { saleId: string; voidedBy: string; reason?: string }) {
+    return this.call<{ alreadyVoided: boolean }>("POST", "/sales/void", input);
+  }
 }
 
 type SeedProduct = BootstrapData["products"][number];
@@ -141,6 +155,11 @@ export class MemoryBackend implements PosBackend {
   private movements: CashMovementInput[] = [];
   private shiftSales = { salesCount: 0, totalCents: 0, byMethod: new Map<string, number>() };
   private day: CashierDaySummary[] = [];
+  private salesLog: RecentSale[] = [];
+  private saleDetails = new Map<
+    string,
+    { items: Array<{ productId: string; qtyMilli: number }>; cashApplied: number }
+  >();
 
   async bootstrap(): Promise<BootstrapData> {
     return {
@@ -303,6 +322,57 @@ export class MemoryBackend implements PosBackend {
     }
     this.shiftSales.salesCount += 1;
     this.shiftSales.totalCents += quote.totals.totalCents;
+    this.salesLog.unshift({
+      id: saleId,
+      createdAt: new Date().toISOString(),
+      totalCents: quote.totals.totalCents,
+      methods: [...new Set(payments.map((p) => p.method))],
+      voidedAt: null,
+    });
+    this.saleDetails.set(saleId, {
+      items: cart.lines.map((l) => ({ productId: l.productId, qtyMilli: l.qtyMilli })),
+      cashApplied:
+        settlement.appliedByMethod.find((p) => p.method === "cash")?.appliedCents ?? 0,
+    });
+    for (const item of cart.lines) {
+      const product = this.products.find((p) => p.id === item.productId);
+      if (product) product.stockMilli -= item.qtyMilli;
+    }
     return { saleId, quote, settlement };
+  }
+
+  async recentSales(): Promise<RecentSale[]> {
+    return this.salesLog;
+  }
+
+  async voidSale(input: {
+    saleId: string;
+    voidedBy: string;
+    reason?: string;
+  }): Promise<{ alreadyVoided: boolean }> {
+    const sale = this.salesLog.find((s) => s.id === input.saleId);
+    if (!sale) throw new Error("La venta no existe");
+    if (sale.voidedAt) return { alreadyVoided: true };
+    const detail = this.saleDetails.get(input.saleId);
+    if (detail?.cashApplied && !this.session) {
+      throw new Error(
+        "Para anular una venta en efectivo debe haber un turno abierto (el dinero sale de la caja)",
+      );
+    }
+    sale.voidedAt = new Date().toISOString();
+    for (const item of detail?.items ?? []) {
+      const product = this.products.find((p) => p.id === item.productId);
+      if (product) product.stockMilli += item.qtyMilli;
+    }
+    if (detail && detail.cashApplied > 0) {
+      this.movements.push({
+        id: `${input.saleId}/void`,
+        kind: "refund",
+        amountCents: detail.cashApplied,
+      });
+    }
+    this.shiftSales.salesCount -= 1;
+    this.shiftSales.totalCents -= sale.totalCents;
+    return { alreadyVoided: false };
   }
 }

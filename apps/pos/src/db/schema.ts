@@ -115,6 +115,9 @@ export const sales = sqliteTable("sales", {
   cashRoundingCents: integer("cash_rounding_cents").notNull(),
   /** Full input (sale + payments) for audit and event replay. */
   input: text("input", { mode: "json" }).notNull(),
+  /** Set when the sale was voided (anulada); reversal movements compensate. */
+  voidedAt: text("voided_at"),
+  voidedBy: text("voided_by"),
 });
 
 export const saleLines = sqliteTable(

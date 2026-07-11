@@ -105,7 +105,7 @@ export default function App() {
 
       {/* Views stay mounted so switching tabs never loses in-progress work. */}
       <div className="view" hidden={mode !== "sale"}>
-        <SaleView backend={backend} boot={boot} refresh={refresh} />
+        <SaleView backend={backend} boot={boot} user={user} refresh={refresh} />
       </div>
       <div className="view" hidden={mode !== "reception"}>
         <ReceptionView backend={backend} boot={boot} refresh={refresh} />

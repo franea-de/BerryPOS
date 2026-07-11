@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, lt } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import type { PaymentMethod } from "@berrypos/domain";
 import type { DbLike } from "./context.js";
 import { cashSessions, payments, sales } from "./schema.js";
@@ -19,10 +19,11 @@ export function getSessionSalesSummary(
   db: DbLike,
   sessionId: string,
 ): SessionSalesSummary {
+  // Voided sales don't count as sold; their cash refund shows in the Z.
   const sessionSales = db
     .select()
     .from(sales)
-    .where(eq(sales.cashSessionId, sessionId))
+    .where(and(eq(sales.cashSessionId, sessionId), isNull(sales.voidedAt)))
     .all();
   if (sessionSales.length === 0) {
     return { salesCount: 0, totalCents: 0, byMethod: [] };

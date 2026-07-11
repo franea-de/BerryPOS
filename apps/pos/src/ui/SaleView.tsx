@@ -8,11 +8,13 @@ import {
   updateLine,
   type Cart,
 } from "../cart.js";
+import type { ScanResult } from "../db/catalog.js";
 import type {
   BootstrapData,
   CheckoutResult,
   NewProductDraft,
   PosBackend,
+  UserSummary,
 } from "./backend.js";
 import RegisterProduct from "./RegisterProduct.js";
 import { demoScaleCode, money, qty } from "./format.js";
@@ -20,10 +22,11 @@ import { demoScaleCode, money, qty } from "./format.js";
 interface Props {
   backend: PosBackend;
   boot: BootstrapData;
+  user: UserSummary;
   refresh: () => Promise<void>;
 }
 
-export default function SaleView({ backend, boot, refresh }: Props) {
+export default function SaleView({ backend, boot, user, refresh }: Props) {
   const [cart, setCart] = useState<Cart>(EMPTY_CART);
   const [code, setCode] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -46,6 +49,25 @@ export default function SaleView({ backend, boot, refresh }: Props) {
     window.setTimeout(() => setMessage(null), 2500);
   }
 
+  /** Add a scan and warn (without blocking) when it oversells the stock. */
+  function addToCart(result: Exclude<ScanResult, { kind: "not_found" }>) {
+    setReceipt(null);
+    const next = addScan(cart, result);
+    setCart(next);
+
+    const product = boot.products.find((p) => p.id === result.product.id);
+    if (product) {
+      const inCart = next.lines
+        .filter((l) => l.productId === product.id)
+        .reduce((a, l) => a + l.qtyMilli, 0);
+      if (product.stockMilli - inCart < 0) {
+        flash(
+          `⚠ ${product.name}: stock insuficiente (hay ${qty(Math.max(product.stockMilli, 0), product.isWeighable)}) — se venderá igual y quedará en negativo`,
+        );
+      }
+    }
+  }
+
   async function handleScan() {
     const trimmed = code.trim();
     setCode("");
@@ -58,8 +80,7 @@ export default function SaleView({ backend, boot, refresh }: Props) {
         setRegistering(trimmed);
         return;
       }
-      setReceipt(null);
-      setCart((c) => addScan(c, result));
+      addToCart(result);
     } catch (e) {
       flash(e instanceof Error ? e.message : "Error de escaneo");
     }
@@ -69,12 +90,21 @@ export default function SaleView({ backend, boot, refresh }: Props) {
     setCode("");
     try {
       const result = await backend.scan(barcodeOrScale);
-      if (result.kind !== "not_found") {
-        setReceipt(null);
-        setCart((c) => addScan(c, result));
-      }
+      if (result.kind !== "not_found") addToCart(result);
     } catch (e) {
       flash(e instanceof Error ? e.message : "Error de escaneo");
+    }
+  }
+
+  async function voidReceipt() {
+    if (!receipt) return;
+    try {
+      await backend.voidSale({ saleId: receipt.saleId, voidedBy: user.id });
+      setReceipt(null);
+      await refresh();
+      flash("Venta anulada: el stock volvió y el efectivo sale de caja");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "No se pudo anular");
     }
   }
 
@@ -145,6 +175,9 @@ export default function SaleView({ backend, boot, refresh }: Props) {
                 {money(p.unitPriceCents)}
                 {p.isWeighable ? " /kg" : ""}
               </span>
+              <span className={`quick-stock ${p.stockMilli <= 0 ? "out" : ""}`}>
+                stock: {qty(p.stockMilli, p.isWeighable)}
+              </span>
             </button>
           ))}
         </div>
@@ -166,6 +199,9 @@ export default function SaleView({ backend, boot, refresh }: Props) {
                   .join(", ")}
               </p>
             )}
+            <button className="void-btn" onClick={() => void voidReceipt()}>
+              Anular esta venta
+            </button>
           </div>
         )}
       </section>

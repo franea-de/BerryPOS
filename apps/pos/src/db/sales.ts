@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { desc, eq, gte } from "drizzle-orm";
 import {
   computeSaleTotals,
   settlePayments,
@@ -162,4 +162,136 @@ export function recordSale(
 
     return { saleId: params.saleId, alreadyRecorded: false, totals, settlement };
   });
+}
+
+export interface VoidSaleParams {
+  saleId: string;
+  /** User id of whoever authorized the void. */
+  voidedBy: string;
+  /** Open session that refunds the cash (required when cash was applied). */
+  currentSessionId: string | null;
+  reason?: string;
+  occurredAt?: string;
+}
+
+/**
+ * Void a charged sale (anulación). Ledger-style: the sale row is marked and
+ * every effect gets a compensating movement — stock returns to the shelf,
+ * cash leaves the CURRENT drawer as a refund. Nothing is ever deleted.
+ */
+export function voidSale(
+  db: PosDb,
+  ctx: DeviceContext,
+  params: VoidSaleParams,
+): { alreadyVoided: boolean } {
+  const occurredAt = params.occurredAt ?? nowIso();
+  return db.transaction((tx) => {
+    const sale = tx
+      .select()
+      .from(sales)
+      .where(eq(sales.id, params.saleId))
+      .get();
+    if (!sale) throw new Error(`sale "${params.saleId}" does not exist`);
+    if (sale.voidedAt) return { alreadyVoided: true };
+
+    tx.update(sales)
+      .set({ voidedAt: occurredAt, voidedBy: params.voidedBy })
+      .where(eq(sales.id, params.saleId))
+      .run();
+
+    const lines = tx
+      .select()
+      .from(saleLines)
+      .where(eq(saleLines.saleId, params.saleId))
+      .all();
+    for (const line of lines) {
+      tx.insert(stockMovements)
+        .values({
+          id: `${params.saleId}/void/${line.id}`,
+          productId: line.productId,
+          kind: "customer_return",
+          qtyMilli: line.qtyMilli,
+          saleId: params.saleId,
+          note: "anulación de venta",
+          createdAt: occurredAt,
+        })
+        .run();
+    }
+
+    // Cash applied = tendered cash − change; that money leaves the drawer now.
+    const cashTendered = tx
+      .select()
+      .from(paymentsTable)
+      .where(eq(paymentsTable.saleId, params.saleId))
+      .all()
+      .filter((p) => p.method === "cash")
+      .reduce((a, p) => a + p.amountCents, 0);
+    const cashApplied = cashTendered - sale.changeCents;
+    if (cashApplied > 0) {
+      if (!params.currentSessionId) {
+        throw new Error(
+          "Para anular una venta en efectivo debe haber un turno abierto (el dinero sale de la caja)",
+        );
+      }
+      tx.insert(cashMovements)
+        .values({
+          id: `${params.saleId}/void/cash`,
+          sessionId: params.currentSessionId,
+          kind: "refund",
+          amountCents: cashApplied,
+          saleId: params.saleId,
+          note: "anulación de venta",
+          createdAt: occurredAt,
+        })
+        .run();
+    }
+
+    appendOutboxEvent(tx, {
+      ...buildEnvelope(tx, ctx, occurredAt),
+      type: "sale_voided",
+      saleId: params.saleId,
+      voidedBy: params.voidedBy,
+      ...(params.reason ? { reason: params.reason } : {}),
+    });
+
+    return { alreadyVoided: false };
+  });
+}
+
+export interface RecentSale {
+  id: string;
+  createdAt: string;
+  totalCents: number;
+  methods: string[];
+  voidedAt: string | null;
+}
+
+/** Latest sales (for the void screen), newest first. */
+export function listRecentSales(
+  db: PosDb,
+  opts: { sinceIso: string; limit?: number },
+): RecentSale[] {
+  const rows = db
+    .select()
+    .from(sales)
+    .where(gte(sales.createdAt, opts.sinceIso))
+    .orderBy(desc(sales.createdAt))
+    .limit(opts.limit ?? 20)
+    .all();
+  return rows.map((sale) => ({
+    id: sale.id,
+    createdAt: sale.createdAt,
+    totalCents: sale.totalCents,
+    methods: [
+      ...new Set(
+        db
+          .select()
+          .from(paymentsTable)
+          .where(eq(paymentsTable.saleId, sale.id))
+          .all()
+          .map((p) => p.method),
+      ),
+    ],
+    voidedAt: sale.voidedAt,
+  }));
 }

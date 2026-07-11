@@ -178,6 +178,58 @@ describe("PosService", () => {
     });
   });
 
+  it("voids a sale: stock returns, cash refunds, summaries exclude it", () => {
+    const { db, service } = newService();
+    openShift(service, "cajero-1", 10_000);
+
+    let cart: Cart = EMPTY_CART;
+    cart = addScan(cart, service.scan("7751234567892"));
+    const sale = service.checkout(cart, [{ method: "cash", amountCents: 850 }]);
+    expect(getProductStock(db, "soda")).toBe(-1000);
+
+    const r = service.voidSale({ saleId: sale.saleId, voidedBy: "admin" });
+    expect(r.alreadyVoided).toBe(false);
+    // Stock came back and voiding twice is a no-op.
+    expect(getProductStock(db, "soda")).toBe(0);
+    expect(service.voidSale({ saleId: sale.saleId, voidedBy: "admin" }).alreadyVoided).toBe(true);
+
+    // The recent list shows it voided; the daily summary no longer counts it.
+    expect(service.recentSales()[0]).toMatchObject({
+      id: sale.saleId,
+      voidedAt: expect.any(String),
+    });
+    const { cashiers } = service.dailySummary();
+    expect(cashiers.find((c) => c.cashierId === "cajero-1")?.salesCount).toBe(0);
+
+    // The refund left the drawer: Z expects the float alone.
+    const z = service.closeShift({ countedCents: 10_000 });
+    expect(z.z.expectedCents).toBe(10_000);
+    expect(z.z.byKind.refund).toBe(850);
+  });
+
+  it("voiding a cash sale without an open shift is rejected", () => {
+    const { service } = newService();
+    openShift(service);
+    let cart: Cart = EMPTY_CART;
+    cart = addScan(cart, service.scan("7751234567892"));
+    const sale = service.checkout(cart, [{ method: "cash", amountCents: 850 }]);
+    service.closeShift({ countedCents: 10_850 });
+
+    expect(() => service.voidSale({ saleId: sale.saleId, voidedBy: "admin" })).toThrow(
+      "turno abierto",
+    );
+
+    // Card sales carry no drawer effect: voidable with the shift closed.
+    openShift(service, "admin");
+    let cart2: Cart = EMPTY_CART;
+    cart2 = addScan(cart2, service.scan("7752345678903"));
+    const cardSale = service.checkout(cart2, [{ method: "card", amountCents: 690 }]);
+    service.closeShift({ countedCents: 10_000 });
+    expect(
+      service.voidSale({ saleId: cardSale.saleId, voidedBy: "admin" }).alreadyVoided,
+    ).toBe(false);
+  });
+
   it("registerProduct makes the code sellable immediately", () => {
     const { service } = newService();
     expect(service.scan("7809876543217").kind).toBe("not_found");

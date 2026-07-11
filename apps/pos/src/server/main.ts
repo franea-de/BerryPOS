@@ -103,6 +103,14 @@ async function handle(
     }
     case "GET /summary/today":
       return service.dailySummary();
+    case "GET /sales/recent":
+      return service.recentSales();
+    case "POST /sales/void": {
+      const body = (await readBody(req)) as Parameters<
+        PosService["voidSale"]
+      >[0];
+      return service.voidSale(body);
+    }
     case "POST /scan": {
       const body = (await readBody(req)) as { code?: string };
       if (typeof body.code !== "string") throw new Error("code is required");
