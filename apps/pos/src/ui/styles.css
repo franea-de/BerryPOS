@@ -56,7 +56,8 @@ body {
 }
 
 .quick-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
 }
 .quick-btn {
   display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
@@ -97,7 +98,8 @@ body {
 .cart-line-promo { color: var(--accent-2); font-style: normal; }
 .cart-line-actions { display: flex; gap: 6px; }
 .cart-line-actions button {
-  width: 34px; height: 34px; font-size: 16px; border: none; border-radius: 8px;
+  /* 44px minimum: must stay usable on touch monitors and tablets. */
+  width: 44px; height: 44px; font-size: 18px; border: none; border-radius: 8px;
   background: #3a4157; color: var(--text); cursor: pointer;
 }
 .cart-line-actions button.danger { background: #55303a; color: #ffb3c4; }
@@ -185,3 +187,9 @@ body {
   background: var(--accent-2); color: #08150e; font-weight: 700; cursor: pointer;
 }
 .modal-save:disabled { background: #2c3245; color: var(--muted); cursor: default; }
+
+/* Tablet / portrait touch monitors: stack the two panels. */
+@media (max-width: 900px) {
+  .pos-main { grid-template-columns: 1fr; overflow-y: auto; }
+  .cart { max-height: 40vh; }
+}
