@@ -89,6 +89,35 @@ describe("PosService", () => {
     expect(rescanned.product.source).toBe("local");
   });
 
+  it("receives stock idempotently and exposes it in bootstrap", () => {
+    const db = openPosDb(":memory:");
+    const service = new PosService(db, CTX);
+    service.bootstrap();
+
+    const movementId = "0d6a2cbe-9f7d-4a1a-8a44-eeeeeeeeeeee";
+    const first = service.receiveStock({
+      movementId,
+      productId: "soda",
+      qtyMilli: 24_000, // one crate of 24
+    });
+    expect(first.stockMilli).toBe(24_000);
+
+    // A retry with the same movementId must not double the stock.
+    const retry = service.receiveStock({ movementId, productId: "soda", qtyMilli: 24_000 });
+    expect(retry.stockMilli).toBe(24_000);
+
+    const boot = service.bootstrap();
+    expect(boot.products.find((p) => p.id === "soda")?.stockMilli).toBe(24_000);
+
+    expect(() =>
+      service.receiveStock({
+        movementId: "0d6a2cbe-9f7d-4a1a-8a44-ffffffffffff",
+        productId: "ghost",
+        qtyMilli: 1000,
+      }),
+    ).toThrow("does not exist");
+  });
+
   it("everything survives closing and reopening the DB file", () => {
     const file = tempDbFile();
 

@@ -13,6 +13,7 @@ import { SEED_CASH_ROUNDING, SEED_SNAPSHOT } from "./catalog-seed.js";
 import {
   applyCatalogSnapshot,
   createProduct,
+  findProductById,
   findProductByScan,
   getCatalogRevision,
   getPromotions,
@@ -24,6 +25,11 @@ import {
 import { openCashSession } from "./db/cash.js";
 import { recordSale } from "./db/sales.js";
 import { cashSessions } from "./db/schema.js";
+import {
+  getProductStock,
+  projectAllStock,
+  recordStockMovement,
+} from "./db/stock.js";
 import type { DeviceContext, PosDb } from "./db/context.js";
 
 /**
@@ -32,8 +38,13 @@ import type { DeviceContext, PosDb } from "./db/context.js";
  * this class, so it stays fully testable without sockets.
  */
 
+export interface ProductSummary extends ProductWithBarcodes {
+  /** Current stock projection (milli-units; 1525 = 1.525 kg or units×1000). */
+  stockMilli: number;
+}
+
 export interface BootstrapData {
-  products: ProductWithBarcodes[];
+  products: ProductSummary[];
   taxCatalog: TaxDefinitionInput[];
   promotions: PromotionInput[];
   cashSessionId: string;
@@ -65,8 +76,12 @@ export class PosService {
     if (getCatalogRevision(this.db) < SEED_SNAPSHOT.revision) {
       applyCatalogSnapshot(this.db, SEED_SNAPSHOT);
     }
+    const stock = projectAllStock(this.db);
     return {
-      products: listProducts(this.db),
+      products: listProducts(this.db).map((p) => ({
+        ...p,
+        stockMilli: stock.get(p.id) ?? 0,
+      })),
       taxCatalog: getTaxCatalog(this.db),
       promotions: getPromotions(this.db),
       cashSessionId: this.ensureOpenSession(),
@@ -89,6 +104,29 @@ export class PosService {
       taxCodes: SEED_SNAPSHOT.taxCatalog.map((t) => t.code),
     });
     return { kind: "product", product: r.product };
+  }
+
+  /**
+   * Receive merchandise: append a reception movement to the stock ledger.
+   * `movementId` is client-generated so retries never double the stock.
+   */
+  receiveStock(params: {
+    movementId: string;
+    productId: string;
+    qtyMilli: number;
+    note?: string;
+  }): { stockMilli: number } {
+    if (!findProductById(this.db, params.productId)) {
+      throw new Error(`product "${params.productId}" does not exist`);
+    }
+    recordStockMovement(this.db, this.ctx, {
+      movementId: params.movementId,
+      productId: params.productId,
+      kind: "reception",
+      qtyMilli: params.qtyMilli,
+      ...(params.note ? { note: params.note } : {}),
+    });
+    return { stockMilli: getProductStock(this.db, params.productId) };
   }
 
   /** Freeze the cart, settle the tender and persist the sale atomically. */

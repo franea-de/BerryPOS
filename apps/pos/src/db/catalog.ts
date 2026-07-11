@@ -150,6 +150,10 @@ export interface ProductWithBarcodes extends ProductRow {
   barcodes: string[];
 }
 
+export function findProductById(db: DbLike, id: string): ProductRow | undefined {
+  return db.select().from(products).where(eq(products.id, id)).get();
+}
+
 /** Active products with their barcodes (quick-pick grid, catalog views). */
 export function listProducts(db: DbLike): ProductWithBarcodes[] {
   const codesByProduct = new Map<string, string[]>();

@@ -1,6 +1,8 @@
 import { eq } from "drizzle-orm";
 import {
   projectProductStock,
+  projectStock,
+  type QtyMilli,
   type StockMovementInput,
 } from "@berrypos/domain";
 import { appendOutboxEvent, buildEnvelope, nowIso, type DbLike, type DeviceContext, type PosDb } from "./context.js";
@@ -58,6 +60,21 @@ export function recordStockMovement(
     });
     return { alreadyRecorded: false };
   });
+}
+
+/** Stock of every product with movements, keyed by product id. */
+export function projectAllStock(db: DbLike): Map<string, QtyMilli> {
+  const movements: StockMovementInput[] = db
+    .select()
+    .from(stockMovements)
+    .all()
+    .map((m) => ({
+      id: m.id,
+      productId: m.productId,
+      kind: m.kind as StockMovementInput["kind"],
+      qtyMilli: m.qtyMilli,
+    }));
+  return projectStock(movements);
 }
 
 /** Current stock of a product: the domain projection over its movements. */

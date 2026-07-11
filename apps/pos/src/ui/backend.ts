@@ -10,9 +10,18 @@ import type {
   BootstrapData,
   CheckoutResult,
   NewProductDraft,
+  ProductSummary,
 } from "../service.js";
 
-export type { BootstrapData, CheckoutResult, NewProductDraft };
+export type { BootstrapData, CheckoutResult, NewProductDraft, ProductSummary };
+
+export interface ReceiveStockInput {
+  /** Client-generated UUID so a retry never doubles the stock. */
+  movementId: string;
+  productId: string;
+  qtyMilli: number;
+  note?: string;
+}
 
 /**
  * What the sale screen needs from the world. `HttpBackend` talks to the
@@ -26,6 +35,8 @@ export interface PosBackend {
   scan(code: string): Promise<ScanResult>;
   createProduct(draft: NewProductDraft): Promise<ScanResult>;
   checkout(cart: Cart, payments: PaymentInput[]): Promise<CheckoutResult>;
+  /** Merchandise reception: adds to the stock ledger. */
+  receiveStock(input: ReceiveStockInput): Promise<{ stockMilli: number }>;
 }
 
 const SERVER_URL = "http://127.0.0.1:1421";
@@ -57,6 +68,9 @@ export class HttpBackend implements PosBackend {
   checkout(cart: Cart, payments: PaymentInput[]) {
     return this.call<CheckoutResult>("POST", "/checkout", { cart, payments });
   }
+  receiveStock(input: ReceiveStockInput) {
+    return this.call<{ stockMilli: number }>("POST", "/receive", input);
+  }
 }
 
 type SeedProduct = BootstrapData["products"][number];
@@ -75,6 +89,7 @@ export class MemoryBackend implements PosBackend {
     active: p.active,
     source: "cloud" as const,
     barcodes: [...p.barcodes],
+    stockMilli: 0,
   }));
 
   async bootstrap(): Promise<BootstrapData> {
@@ -119,9 +134,17 @@ export class MemoryBackend implements PosBackend {
       active: true,
       source: "local",
       barcodes: [draft.barcode],
+      stockMilli: 0,
     };
     this.products.push(product);
     return { kind: "product", product };
+  }
+
+  async receiveStock(input: ReceiveStockInput): Promise<{ stockMilli: number }> {
+    const product = this.products.find((p) => p.id === input.productId);
+    if (!product) throw new Error(`El producto no existe`);
+    product.stockMilli += input.qtyMilli;
+    return { stockMilli: product.stockMilli };
   }
 
   async checkout(cart: Cart, payments: PaymentInput[]): Promise<CheckoutResult> {

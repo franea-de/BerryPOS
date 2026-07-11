@@ -87,6 +87,12 @@ async function handle(
       >[0];
       return service.registerProduct(body);
     }
+    case "POST /receive": {
+      const body = (await readBody(req)) as Parameters<
+        PosService["receiveStock"]
+      >[0];
+      return service.receiveStock(body);
+    }
     case "POST /checkout": {
       const body = (await readBody(req)) as {
         cart: Parameters<PosService["checkout"]>[0];
