@@ -7,8 +7,9 @@ import type {
   Settlement,
   TaxDefinitionInput,
 } from "@berrypos/domain";
+import type { CashRounding } from "@berrypos/domain";
 import { quoteCart, toRecordSaleParams, type Cart } from "./cart.js";
-import { SEED_SNAPSHOT } from "./catalog-seed.js";
+import { SEED_CASH_ROUNDING, SEED_SNAPSHOT } from "./catalog-seed.js";
 import {
   applyCatalogSnapshot,
   createProduct,
@@ -36,6 +37,8 @@ export interface BootstrapData {
   taxCatalog: TaxDefinitionInput[];
   promotions: PromotionInput[];
   cashSessionId: string;
+  /** Store cash-rounding rule; the UI needs it for the exact-cash button. */
+  cashRounding: CashRounding;
 }
 
 export interface NewProductDraft {
@@ -57,9 +60,9 @@ export class PosService {
     private readonly ctx: DeviceContext,
   ) {}
 
-  /** Seed a fresh DB, make sure a cash session is open, load the catalog. */
+  /** Seed/upgrade the base catalog, open a cash session, load everything. */
   bootstrap(): BootstrapData {
-    if (getCatalogRevision(this.db) === -1) {
+    if (getCatalogRevision(this.db) < SEED_SNAPSHOT.revision) {
       applyCatalogSnapshot(this.db, SEED_SNAPSHOT);
     }
     return {
@@ -67,6 +70,7 @@ export class PosService {
       taxCatalog: getTaxCatalog(this.db),
       promotions: getPromotions(this.db),
       cashSessionId: this.ensureOpenSession(),
+      cashRounding: SEED_CASH_ROUNDING,
     };
   }
 
@@ -96,6 +100,7 @@ export class PosService {
       saleId: crypto.randomUUID(),
       cashSessionId: this.ensureOpenSession(),
       payments,
+      cashRounding: SEED_CASH_ROUNDING,
     });
     const r = recordSale(this.db, this.ctx, params);
     return {

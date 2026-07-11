@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ean13CheckDigit, type PaymentInput } from "@berrypos/domain";
+import {
+  cents,
+  ean13CheckDigit,
+  roundToUnit,
+  type PaymentInput,
+} from "@berrypos/domain";
 import {
   addScan,
   EMPTY_CART,
@@ -18,8 +23,8 @@ import {
 } from "./backend.js";
 import RegisterProduct from "./RegisterProduct.js";
 
-function money(cents: number): string {
-  return `$${(cents / 100).toLocaleString("es-CL", {
+function money(amountCents: number): string {
+  return `S/ ${(amountCents / 100).toLocaleString("es-PE", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -27,7 +32,7 @@ function money(cents: number): string {
 
 function qty(qtyMilli: number, weighable: boolean): string {
   return weighable
-    ? `${(qtyMilli / 1000).toLocaleString("es-CL", { maximumFractionDigits: 3 })} kg`
+    ? `${(qtyMilli / 1000).toLocaleString("es-PE", { maximumFractionDigits: 3 })} kg`
     : `${Math.round(qtyMilli / 1000)}`;
 }
 
@@ -144,6 +149,13 @@ export default function App() {
   }
 
   const total = quote?.totals.totalCents ?? 0;
+  // Cash owes the total rounded to the store's smallest coin (Peru: S/ 0.10);
+  // cards pay the exact amount.
+  const cashDue = roundToUnit(
+    cents(total),
+    boot.cashRounding.unitCents,
+    boot.cashRounding.mode,
+  );
   const cashCents = Math.round(Number(cashText.replace(",", ".")) * 100) || 0;
 
   return (
@@ -327,9 +339,9 @@ export default function App() {
                 </button>
                 <button
                   className="pay-option"
-                  onClick={() => void pay([{ method: "cash", amountCents: total }])}
+                  onClick={() => void pay([{ method: "cash", amountCents: cashDue }])}
                 >
-                  💵 Efectivo exacto
+                  💵 Efectivo exacto ({money(cashDue)})
                 </button>
                 <div className="pay-cash">
                   <input
@@ -339,18 +351,18 @@ export default function App() {
                     onChange={(e) => setCashText(e.target.value)}
                     onKeyDown={(e) =>
                       e.key === "Enter" &&
-                      cashCents >= total &&
+                      cashCents >= cashDue &&
                       void pay([{ method: "cash", amountCents: cashCents }])
                     }
                   />
                   <button
-                    disabled={cashCents < total}
+                    disabled={cashCents < cashDue}
                     onClick={() =>
                       void pay([{ method: "cash", amountCents: cashCents }])
                     }
                   >
                     Cobrar
-                    {cashCents > total ? ` (vuelto ${money(cashCents - total)})` : ""}
+                    {cashCents > cashDue ? ` (vuelto ${money(cashCents - cashDue)})` : ""}
                   </button>
                 </div>
                 <button className="pay-cancel" onClick={() => setPaying(false)}>

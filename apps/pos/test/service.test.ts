@@ -25,7 +25,8 @@ describe("PosService", () => {
     const service = new PosService(openPosDb(":memory:"), CTX);
     const a = service.bootstrap();
     expect(a.products.length).toBeGreaterThan(0);
-    expect(a.taxCatalog.map((t) => t.code)).toContain("IVA19");
+    expect(a.taxCatalog.map((t) => t.code)).toContain("IGV18");
+    expect(a.cashRounding.unitCents).toBe(10);
 
     const b = service.bootstrap();
     expect(b.cashSessionId).toBe(a.cashSessionId);
@@ -37,14 +38,36 @@ describe("PosService", () => {
     service.bootstrap();
 
     let cart: Cart = EMPTY_CART;
-    cart = addScan(cart, service.scan("7801234567897")); // soda 1890
-    cart = addScan(cart, service.scan("7801234567897")); // 2x1 applies
+    cart = addScan(cart, service.scan("7751234567892")); // Inca Kola S/ 8.50
+    cart = addScan(cart, service.scan("7751234567892")); // 2x1 applies
 
-    const r = service.checkout(cart, [{ method: "cash", amountCents: 2000 }]);
-    expect(r.quote.totals.totalCents).toBe(1890);
-    expect(r.settlement.changeCents).toBe(110);
+    const r = service.checkout(cart, [{ method: "cash", amountCents: 1000 }]);
+    expect(r.quote.totals.totalCents).toBe(850);
+    expect(r.settlement.changeCents).toBe(150);
     expect(r.quote.promotions[0]?.promotionId).toBe("2x1-soda");
     expect(getProductStock(db, "soda")).toBe(-2000);
+  });
+
+  it("cash rounds to 10 céntimos (Peru), cards pay the exact total", () => {
+    const db = openPosDb(":memory:");
+    const service = new PosService(db, CTX);
+    service.bootstrap();
+
+    // Chips S/ 7.50 with 10% snacks promo -> S/ 6.75 (not a 10c multiple).
+    let cart: Cart = EMPTY_CART;
+    cart = addScan(cart, service.scan("7754567890125"));
+
+    const cash = service.checkout(cart, [{ method: "cash", amountCents: 700 }]);
+    expect(cash.quote.totals.totalCents).toBe(675);
+    expect(cash.settlement.dueCents).toBe(680); // 675 -> nearest 10
+    expect(cash.settlement.cashRoundingCents).toBe(5);
+    expect(cash.settlement.changeCents).toBe(20);
+
+    let cart2: Cart = EMPTY_CART;
+    cart2 = addScan(cart2, service.scan("7754567890125"));
+    const card = service.checkout(cart2, [{ method: "card", amountCents: 675 }]);
+    expect(card.settlement.dueCents).toBe(675); // no rounding without cash
+    expect(card.settlement.cashRoundingCents).toBe(0);
   });
 
   it("registerProduct makes the code sellable immediately", () => {

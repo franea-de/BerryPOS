@@ -4,7 +4,7 @@ import {
   type PaymentInput,
 } from "@berrypos/domain";
 import { quoteCart, type Cart } from "../cart.js";
-import { SEED_SNAPSHOT } from "../catalog-seed.js";
+import { SEED_CASH_ROUNDING, SEED_SNAPSHOT } from "../catalog-seed.js";
 import type { ScanResult } from "../db/catalog.js";
 import type {
   BootstrapData,
@@ -83,6 +83,7 @@ export class MemoryBackend implements PosBackend {
       taxCatalog: SEED_SNAPSHOT.taxCatalog,
       promotions: SEED_SNAPSHOT.promotions,
       cashSessionId: "demo-session",
+      cashRounding: SEED_CASH_ROUNDING,
     };
   }
 
@@ -114,7 +115,7 @@ export class MemoryBackend implements PosBackend {
       scaleItemCode: null,
       isWeighable: draft.isWeighable,
       unitPriceCents: draft.unitPriceCents,
-      taxCodes: ["IVA19"],
+      taxCodes: SEED_SNAPSHOT.taxCatalog.map((t) => t.code),
       active: true,
       source: "local",
       barcodes: [draft.barcode],
@@ -128,6 +129,7 @@ export class MemoryBackend implements PosBackend {
     const settlement = settlePayments({
       totalCents: quote.totals.totalCents,
       payments,
+      cashRounding: SEED_CASH_ROUNDING,
     });
     if (settlement.status !== "paid") {
       throw new Error("El pago no cubre el total de la venta");
