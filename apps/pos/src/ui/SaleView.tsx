@@ -285,6 +285,12 @@ export default function SaleView({ backend, boot, refresh }: Props) {
               </button>
               <button
                 className="pay-option"
+                onClick={() => void pay([{ method: "wallet", amountCents: total }])}
+              >
+                📱 Yape / Plin ({money(total)}) — verifica la notificación
+              </button>
+              <button
+                className="pay-option"
                 onClick={() => void pay([{ method: "cash", amountCents: cashDue }])}
               >
                 💵 Efectivo exacto ({money(cashDue)})

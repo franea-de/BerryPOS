@@ -79,6 +79,24 @@ describe("settlePayments", () => {
     expect(r.changeCents).toBe(0);
   });
 
+  it("supports wallet (Yape/Plin) as exact non-cash payment", () => {
+    const r = settlePayments({
+      totalCents: 675,
+      payments: [{ method: "wallet", amountCents: 675 }],
+      cashRounding: { unitCents: 10 },
+    });
+    expect(r.status).toBe("paid");
+    // No cash involved: no rounding, no change.
+    expect(r.dueCents).toBe(675);
+    expect(r.cashRoundingCents).toBe(0);
+    expect(() =>
+      settlePayments({
+        totalCents: 675,
+        payments: [{ method: "wallet", amountCents: 700 }],
+      }),
+    ).toThrow(RangeError); // wallets can't give change
+  });
+
   it("supports credit (fiado) as full payment", () => {
     const r = settlePayments({
       totalCents: 7500,

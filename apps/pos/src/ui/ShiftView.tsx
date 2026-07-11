@@ -17,6 +17,7 @@ interface Props {
 const METHOD_LABEL: Record<string, string> = {
   cash: "Efectivo",
   card: "Tarjeta",
+  wallet: "Yape/Plin",
   transfer: "Transferencia",
   credit: "Fiado",
 };

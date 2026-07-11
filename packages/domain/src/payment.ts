@@ -22,7 +22,14 @@ import {
  *   by recomputing with the full payment list each time.
  */
 
-export const PaymentMethodSchema = z.enum(["cash", "card", "transfer", "credit"]);
+/** "wallet" = digital wallet QR payments (Yape/Plin in Peru). */
+export const PaymentMethodSchema = z.enum([
+  "cash",
+  "card",
+  "wallet",
+  "transfer",
+  "credit",
+]);
 export type PaymentMethod = z.infer<typeof PaymentMethodSchema>;
 
 export const PaymentInputSchema = z.object({
