@@ -1,19 +1,35 @@
 import {
+  closeCashSession as computeZReport,
   parseScaleEan13,
   settlePayments,
+  type CashMovementInput,
   type PaymentInput,
 } from "@berrypos/domain";
 import { quoteCart, type Cart } from "../cart.js";
 import { SEED_CASH_ROUNDING, SEED_SNAPSHOT } from "../catalog-seed.js";
 import type { ScanResult } from "../db/catalog.js";
+import { hashPin } from "../pin.js";
 import type {
   BootstrapData,
   CheckoutResult,
   NewProductDraft,
   ProductSummary,
+  SessionInfo,
+  ShiftCloseResult,
+  UserSummary,
 } from "../service.js";
+import type { CashierDaySummary } from "../db/reports.js";
 
-export type { BootstrapData, CheckoutResult, NewProductDraft, ProductSummary };
+export type {
+  BootstrapData,
+  CheckoutResult,
+  NewProductDraft,
+  ProductSummary,
+  SessionInfo,
+  ShiftCloseResult,
+  UserSummary,
+  CashierDaySummary,
+};
 
 export interface ReceiveStockInput {
   /** Client-generated UUID so a retry never doubles the stock. */
@@ -37,6 +53,20 @@ export interface PosBackend {
   checkout(cart: Cart, payments: PaymentInput[]): Promise<CheckoutResult>;
   /** Merchandise reception: adds to the stock ledger. */
   receiveStock(input: ReceiveStockInput): Promise<{ stockMilli: number }>;
+  login(userId: string, pin: string): Promise<UserSummary>;
+  openShift(input: {
+    sessionId: string;
+    cashierId: string;
+    openingFloatCents: number;
+  }): Promise<SessionInfo>;
+  cashMovement(input: {
+    movementId: string;
+    kind: "pay_in" | "pay_out";
+    amountCents: number;
+    note?: string;
+  }): Promise<unknown>;
+  closeShift(input: { countedCents: number }): Promise<ShiftCloseResult>;
+  dailySummary(): Promise<{ cashiers: CashierDaySummary[]; dayIso: string }>;
 }
 
 const SERVER_URL = "http://127.0.0.1:1421";
@@ -71,6 +101,21 @@ export class HttpBackend implements PosBackend {
   receiveStock(input: ReceiveStockInput) {
     return this.call<{ stockMilli: number }>("POST", "/receive", input);
   }
+  login(userId: string, pin: string) {
+    return this.call<UserSummary>("POST", "/login", { userId, pin });
+  }
+  openShift(input: { sessionId: string; cashierId: string; openingFloatCents: number }) {
+    return this.call<SessionInfo>("POST", "/session/open", input);
+  }
+  cashMovement(input: { movementId: string; kind: "pay_in" | "pay_out"; amountCents: number; note?: string }) {
+    return this.call<unknown>("POST", "/session/movement", input);
+  }
+  closeShift(input: { countedCents: number }) {
+    return this.call<ShiftCloseResult>("POST", "/session/close", input);
+  }
+  dailySummary() {
+    return this.call<{ cashiers: CashierDaySummary[]; dayIso: string }>("GET", "/summary/today");
+  }
 }
 
 type SeedProduct = BootstrapData["products"][number];
@@ -92,14 +137,98 @@ export class MemoryBackend implements PosBackend {
     stockMilli: 0,
   }));
 
+  private session: SessionInfo | null = null;
+  private movements: CashMovementInput[] = [];
+  private shiftSales = { salesCount: 0, totalCents: 0, byMethod: new Map<string, number>() };
+  private day: CashierDaySummary[] = [];
+
   async bootstrap(): Promise<BootstrapData> {
     return {
       products: this.products,
       taxCatalog: SEED_SNAPSHOT.taxCatalog,
       promotions: SEED_SNAPSHOT.promotions,
-      cashSessionId: "demo-session",
       cashRounding: SEED_CASH_ROUNDING,
+      users: SEED_SNAPSHOT.users.map(({ id, name, role }) => ({ id, name, role })),
+      session: this.session,
     };
+  }
+
+  async login(userId: string, pin: string): Promise<UserSummary> {
+    const user = SEED_SNAPSHOT.users.find((u) => u.id === userId && u.active);
+    if (!user || user.pinHash !== (await hashPin(pin))) {
+      throw new Error("PIN incorrecto");
+    }
+    return { id: user.id, name: user.name, role: user.role };
+  }
+
+  async openShift(input: {
+    sessionId: string;
+    cashierId: string;
+    openingFloatCents: number;
+  }): Promise<SessionInfo> {
+    if (this.session) throw new Error("Ya hay un turno abierto; ciérralo antes de abrir otro");
+    const user = SEED_SNAPSHOT.users.find((u) => u.id === input.cashierId);
+    this.session = {
+      id: input.sessionId,
+      cashierId: input.cashierId,
+      cashierName: user?.name ?? input.cashierId,
+      openedAt: new Date().toISOString(),
+    };
+    this.movements =
+      input.openingFloatCents > 0
+        ? [{ id: `${input.sessionId}/open`, kind: "opening_float", amountCents: input.openingFloatCents }]
+        : [];
+    this.shiftSales = { salesCount: 0, totalCents: 0, byMethod: new Map() };
+    return this.session;
+  }
+
+  async cashMovement(input: {
+    movementId: string;
+    kind: "pay_in" | "pay_out";
+    amountCents: number;
+    note?: string;
+  }): Promise<unknown> {
+    if (!this.session) throw new Error("No hay un turno de caja abierto");
+    this.movements.push({
+      id: input.movementId,
+      kind: input.kind,
+      amountCents: input.amountCents,
+    });
+    return { alreadyRecorded: false };
+  }
+
+  async closeShift(input: { countedCents: number }): Promise<ShiftCloseResult> {
+    if (!this.session) throw new Error("No hay un turno de caja abierto");
+    const z = computeZReport({
+      movements: this.movements,
+      countedCents: input.countedCents,
+    });
+    const result: ShiftCloseResult = {
+      z,
+      sales: {
+        salesCount: this.shiftSales.salesCount,
+        totalCents: this.shiftSales.totalCents,
+        byMethod: [...this.shiftSales.byMethod.entries()].map(
+          ([method, amountCents]) => ({ method: method as PaymentInput["method"], amountCents }),
+        ),
+      },
+      cashierId: this.session.cashierId,
+    };
+    this.day.push({
+      cashierId: this.session.cashierId,
+      salesCount: this.shiftSales.salesCount,
+      totalCents: this.shiftSales.totalCents,
+      overShortCents: z.overShortCents,
+      sessionsCount: 1,
+      openSessions: 0,
+    });
+    this.session = null;
+    this.movements = [];
+    return result;
+  }
+
+  async dailySummary(): Promise<{ cashiers: CashierDaySummary[]; dayIso: string }> {
+    return { cashiers: this.day, dayIso: new Date().toISOString() };
   }
 
   async scan(code: string): Promise<ScanResult> {
@@ -148,6 +277,7 @@ export class MemoryBackend implements PosBackend {
   }
 
   async checkout(cart: Cart, payments: PaymentInput[]): Promise<CheckoutResult> {
+    if (!this.session) throw new Error("No hay un turno de caja abierto");
     const quote = quoteCart(cart, SEED_SNAPSHOT.promotions, SEED_SNAPSHOT.taxCatalog);
     const settlement = settlePayments({
       totalCents: quote.totals.totalCents,
@@ -157,6 +287,22 @@ export class MemoryBackend implements PosBackend {
     if (settlement.status !== "paid") {
       throw new Error("El pago no cubre el total de la venta");
     }
-    return { saleId: crypto.randomUUID(), quote, settlement };
+    const saleId = crypto.randomUUID();
+    for (const applied of settlement.appliedByMethod) {
+      this.shiftSales.byMethod.set(
+        applied.method,
+        (this.shiftSales.byMethod.get(applied.method) ?? 0) + applied.appliedCents,
+      );
+      if (applied.method === "cash" && applied.appliedCents > 0) {
+        this.movements.push({
+          id: `${saleId}/cash`,
+          kind: "cash_sale",
+          amountCents: applied.appliedCents,
+        });
+      }
+    }
+    this.shiftSales.salesCount += 1;
+    this.shiftSales.totalCents += quote.totals.totalCents;
+    return { saleId, quote, settlement };
   }
 }

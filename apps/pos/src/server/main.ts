@@ -76,6 +76,33 @@ async function handle(
   switch (route) {
     case "GET /bootstrap":
       return service.bootstrap();
+    case "POST /login": {
+      const body = (await readBody(req)) as { userId?: string; pin?: string };
+      if (typeof body.userId !== "string" || typeof body.pin !== "string") {
+        throw new Error("userId and pin are required");
+      }
+      return service.login(body.userId, body.pin);
+    }
+    case "POST /session/open": {
+      const body = (await readBody(req)) as Parameters<
+        PosService["openShift"]
+      >[0];
+      return service.openShift(body);
+    }
+    case "POST /session/movement": {
+      const body = (await readBody(req)) as Parameters<
+        PosService["cashMovement"]
+      >[0];
+      return service.cashMovement(body);
+    }
+    case "POST /session/close": {
+      const body = (await readBody(req)) as Parameters<
+        PosService["closeShift"]
+      >[0];
+      return service.closeShift(body);
+    }
+    case "GET /summary/today":
+      return service.dailySummary();
     case "POST /scan": {
       const body = (await readBody(req)) as { code?: string };
       if (typeof body.code !== "string") throw new Error("code is required");

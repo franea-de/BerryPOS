@@ -26,7 +26,7 @@ export const SEED_PROMOTIONS: PromotionInput[] = [
 ];
 
 export const SEED_SNAPSHOT: CatalogSnapshot = {
-  revision: 1,
+  revision: 2,
   products: [
     { id: "soda", name: "Inca Kola 1.5L", categoryId: "bebidas", barcodes: ["7751234567892"], isWeighable: false, unitPriceCents: 850, taxCodes: ["IGV18"], active: true },
     { id: "bread", name: "Pan de molde", categoryId: "abarrotes", barcodes: ["7752345678903"], isWeighable: false, unitPriceCents: 690, taxCodes: ["IGV18"], active: true },
@@ -44,5 +44,21 @@ export const SEED_SNAPSHOT: CatalogSnapshot = {
   ],
   taxCatalog: SEED_TAXES,
   promotions: SEED_PROMOTIONS,
-  users: [],
+  users: [
+    // Default PINs: admin 9999, cajero 1111 (change via cloud panel later).
+    {
+      id: "admin",
+      name: "Administrador",
+      role: "admin",
+      pinHash: "888df25ae35772424a560c7152a1de794440e0ea5cfee62828333a456a506e05",
+      active: true,
+    },
+    {
+      id: "cajero-1",
+      name: "Cajero 1",
+      role: "cashier",
+      pinHash: "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
+      active: true,
+    },
+  ],
 };

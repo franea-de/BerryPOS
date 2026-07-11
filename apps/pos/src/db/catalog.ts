@@ -154,6 +154,16 @@ export function findProductById(db: DbLike, id: string): ProductRow | undefined 
   return db.select().from(products).where(eq(products.id, id)).get();
 }
 
+export type UserRow = typeof users.$inferSelect;
+
+export function getActiveUsers(db: DbLike): UserRow[] {
+  return db.select().from(users).where(eq(users.active, true)).all();
+}
+
+export function findUserById(db: DbLike, id: string): UserRow | undefined {
+  return db.select().from(users).where(eq(users.id, id)).get();
+}
+
 /** Active products with their barcodes (quick-pick grid, catalog views). */
 export function listProducts(db: DbLike): ProductWithBarcodes[] {
   const codesByProduct = new Map<string, string[]>();

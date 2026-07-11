@@ -202,6 +202,94 @@ body {
 }
 .modal-save:disabled { background: #2c3245; color: var(--muted); cursor: default; }
 
+.logout-btn {
+  padding: 9px 14px; font-size: 13px; border: 1px solid #3a4157;
+  border-radius: var(--radius); background: transparent; color: var(--muted);
+  cursor: pointer; min-height: 44px;
+}
+
+.login {
+  height: 100%; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 18px; padding: 20px;
+}
+.login h1 { font-size: 32px; color: var(--accent); }
+.login-demo { color: #ffb3c4; font-size: 13px; }
+.login-hint { color: var(--muted); }
+.login-users { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+.login-user {
+  display: flex; flex-direction: column; gap: 4px; align-items: center;
+  padding: 18px 26px; min-width: 150px;
+  background: var(--panel); color: var(--text);
+  border: 1px solid #3a4157; border-radius: 12px; cursor: pointer;
+}
+.login-user.active { border-color: var(--accent); background: var(--panel-2); }
+.login-user-name { font-weight: 600; font-size: 16px; }
+.login-user-role { color: var(--muted); font-size: 13px; }
+.login-pin { display: flex; gap: 8px; }
+.login-pin input {
+  padding: 14px; font-size: 20px; width: 220px; text-align: center;
+  letter-spacing: 6px; background: var(--panel); color: var(--text);
+  border: 1px solid #3a4157; border-radius: var(--radius);
+}
+.login-pin button {
+  padding: 0 24px; font-size: 16px; border: none; border-radius: var(--radius);
+  background: var(--accent-2); color: #08150e; font-weight: 700; cursor: pointer;
+}
+.login-pin button:disabled { background: #2c3245; color: var(--muted); }
+
+.shift, .summary {
+  flex: 1; overflow-y: auto; padding: 14px;
+  display: flex; flex-direction: column; gap: 14px; align-items: center;
+}
+.shift-panel {
+  width: min(560px, 100%); background: var(--panel); border-radius: var(--radius);
+  padding: 18px; display: flex; flex-direction: column; gap: 12px;
+}
+.shift-panel h2 { font-size: 18px; }
+.shift-panel label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+.shift-panel input {
+  padding: 12px; font-size: 16px; background: var(--panel-2);
+  color: var(--text); border: 1px solid #3a4157; border-radius: 8px;
+}
+.shift-move { display: flex; flex-direction: column; gap: 8px; }
+.shift-move-kind { display: flex; gap: 8px; }
+.shift-move-kind button {
+  flex: 1; padding: 11px; border: 1px solid #3a4157; border-radius: var(--radius);
+  background: transparent; color: var(--muted); cursor: pointer; min-height: 44px;
+}
+.shift-move-kind button.active { background: var(--panel-2); color: var(--text); border-color: var(--accent); }
+.shift-move > button {
+  padding: 12px; border: none; border-radius: var(--radius);
+  background: var(--accent); color: #fff; font-weight: 600; cursor: pointer;
+}
+.danger-btn { background: var(--danger) !important; color: #fff !important; }
+
+.z-report {
+  width: min(560px, 100%); background: #1d3328; border: 1px solid var(--accent-2);
+  border-radius: var(--radius); padding: 18px; display: flex; flex-direction: column; gap: 12px;
+}
+.z-report h2 { color: var(--accent-2); font-size: 18px; }
+.z-grid { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #2c4a3a; padding-top: 10px; }
+.z-row { display: flex; justify-content: space-between; }
+.z-row.grand { font-size: 20px; font-weight: 800; }
+.z-row.grand.ok span:last-child { color: var(--accent-2); }
+.z-row.grand.bad span:last-child { color: #ffb3c4; }
+
+.summary-head { display: flex; justify-content: space-between; align-items: center; }
+.summary-head button {
+  padding: 9px 16px; border: 1px solid #3a4157; border-radius: var(--radius);
+  background: transparent; color: var(--muted); cursor: pointer; min-height: 44px;
+}
+.summary-table { width: 100%; border-collapse: collapse; }
+.summary-table th, .summary-table td {
+  text-align: left; padding: 10px 8px; border-bottom: 1px solid #3a4157;
+}
+.summary-table th { color: var(--muted); font-weight: 600; font-size: 13px; }
+.summary-table td.bad { color: #ffb3c4; }
+.summary-table tfoot td { font-weight: 700; border-bottom: none; }
+
+.no-shift-hint { color: #ffb3c4; font-size: 13px; text-align: center; }
+
 /* Tablet / portrait touch monitors: stack the two panels. */
 @media (max-width: 900px) {
   .pos-main { grid-template-columns: 1fr; overflow-y: auto; }

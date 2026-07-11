@@ -1,5 +1,6 @@
-import { isNull } from "drizzle-orm";
 import type {
+  CashRounding,
+  CashSessionZReport,
   PaymentInput,
   PromotionApplication,
   PromotionInput,
@@ -7,14 +8,16 @@ import type {
   Settlement,
   TaxDefinitionInput,
 } from "@berrypos/domain";
-import type { CashRounding } from "@berrypos/domain";
 import { quoteCart, toRecordSaleParams, type Cart } from "./cart.js";
 import { SEED_CASH_ROUNDING, SEED_SNAPSHOT } from "./catalog-seed.js";
+import { hashPin } from "./pin.js";
 import {
   applyCatalogSnapshot,
   createProduct,
   findProductById,
   findProductByScan,
+  findUserById,
+  getActiveUsers,
   getCatalogRevision,
   getPromotions,
   getTaxCatalog,
@@ -22,9 +25,19 @@ import {
   type ProductWithBarcodes,
   type ScanResult,
 } from "./db/catalog.js";
-import { openCashSession } from "./db/cash.js";
+import {
+  closeCashSession,
+  getOpenSession,
+  openCashSession,
+  recordCashMovement,
+} from "./db/cash.js";
 import { recordSale } from "./db/sales.js";
-import { cashSessions } from "./db/schema.js";
+import {
+  getDailyCashierSummary,
+  getSessionSalesSummary,
+  type CashierDaySummary,
+  type SessionSalesSummary,
+} from "./db/reports.js";
 import {
   getProductStock,
   projectAllStock,
@@ -38,6 +51,19 @@ import type { DeviceContext, PosDb } from "./db/context.js";
  * this class, so it stays fully testable without sockets.
  */
 
+export interface UserSummary {
+  id: string;
+  name: string;
+  role: string;
+}
+
+export interface SessionInfo {
+  id: string;
+  cashierId: string;
+  cashierName: string;
+  openedAt: string;
+}
+
 export interface ProductSummary extends ProductWithBarcodes {
   /** Current stock projection (milli-units; 1525 = 1.525 kg or units×1000). */
   stockMilli: number;
@@ -47,9 +73,12 @@ export interface BootstrapData {
   products: ProductSummary[];
   taxCatalog: TaxDefinitionInput[];
   promotions: PromotionInput[];
-  cashSessionId: string;
   /** Store cash-rounding rule; the UI needs it for the exact-cash button. */
   cashRounding: CashRounding;
+  /** Who can sign in at this register (no PIN hashes here). */
+  users: UserSummary[];
+  /** The open shift, if any. Selling requires one. */
+  session: SessionInfo | null;
 }
 
 export interface NewProductDraft {
@@ -65,13 +94,19 @@ export interface CheckoutResult {
   settlement: Settlement;
 }
 
+export interface ShiftCloseResult {
+  z: CashSessionZReport;
+  sales: SessionSalesSummary;
+  cashierId: string;
+}
+
 export class PosService {
   constructor(
     private readonly db: PosDb,
     private readonly ctx: DeviceContext,
   ) {}
 
-  /** Seed/upgrade the base catalog, open a cash session, load everything. */
+  /** Seed/upgrade the base catalog and load everything the UI needs. */
   bootstrap(): BootstrapData {
     if (getCatalogRevision(this.db) < SEED_SNAPSHOT.revision) {
       applyCatalogSnapshot(this.db, SEED_SNAPSHOT);
@@ -84,8 +119,85 @@ export class PosService {
       })),
       taxCatalog: getTaxCatalog(this.db),
       promotions: getPromotions(this.db),
-      cashSessionId: this.ensureOpenSession(),
       cashRounding: SEED_CASH_ROUNDING,
+      users: getActiveUsers(this.db).map(({ id, name, role }) => ({
+        id,
+        name,
+        role,
+      })),
+      session: this.sessionInfo(),
+    };
+  }
+
+  /** PIN sign-in. Returns the user or throws. */
+  async login(userId: string, pin: string): Promise<UserSummary> {
+    const user = findUserById(this.db, userId);
+    if (!user || !user.active || user.pinHash !== (await hashPin(pin))) {
+      throw new Error("PIN incorrecto");
+    }
+    return { id: user.id, name: user.name, role: user.role };
+  }
+
+  /** Open a shift for a cashier. Only one shift can be open at a time. */
+  openShift(params: {
+    sessionId: string;
+    cashierId: string;
+    openingFloatCents: number;
+  }): SessionInfo {
+    const open = getOpenSession(this.db);
+    if (open && open.id !== params.sessionId) {
+      throw new Error("Ya hay un turno abierto; ciérralo antes de abrir otro");
+    }
+    openCashSession(this.db, this.ctx, params);
+    const info = this.sessionInfo();
+    if (!info) throw new Error("unreachable: shift just opened");
+    return info;
+  }
+
+  /** Manual drawer movement (ingreso/retiro) on the open shift. */
+  cashMovement(params: {
+    movementId: string;
+    kind: "pay_in" | "pay_out";
+    amountCents: number;
+    note?: string;
+  }): { alreadyRecorded: boolean } {
+    const session = this.requireOpenSession();
+    return recordCashMovement(this.db, this.ctx, {
+      ...params,
+      sessionId: session.id,
+    });
+  }
+
+  /**
+   * Close the shift with a blind count: the caller sends what the cashier
+   * counted, and only the response reveals expected cash and over/short.
+   */
+  closeShift(params: { countedCents: number }): ShiftCloseResult {
+    const session = this.requireOpenSession();
+    const z = closeCashSession(this.db, this.ctx, {
+      sessionId: session.id,
+      countedCents: params.countedCents,
+    });
+    return {
+      z,
+      sales: getSessionSalesSummary(this.db, session.id),
+      cashierId: session.cashierId,
+    };
+  }
+
+  /** Per-cashier activity for shifts opened today (local time). */
+  dailySummary(): { cashiers: CashierDaySummary[]; dayIso: string } {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    return {
+      cashiers: getDailyCashierSummary(
+        this.db,
+        start.toISOString(),
+        end.toISOString(),
+      ),
+      dayIso: start.toISOString(),
     };
   }
 
@@ -131,12 +243,13 @@ export class PosService {
 
   /** Freeze the cart, settle the tender and persist the sale atomically. */
   checkout(cart: Cart, payments: PaymentInput[]): CheckoutResult {
+    const session = this.requireOpenSession();
     const promotions = getPromotions(this.db);
     const taxCatalog = getTaxCatalog(this.db);
     const quote = quoteCart(cart, promotions, taxCatalog);
     const params = toRecordSaleParams(cart, promotions, {
       saleId: crypto.randomUUID(),
-      cashSessionId: this.ensureOpenSession(),
+      cashSessionId: session.id,
       payments,
       cashRounding: SEED_CASH_ROUNDING,
     });
@@ -148,20 +261,23 @@ export class PosService {
     };
   }
 
-  private ensureOpenSession(): string {
-    const open = this.db
-      .select({ id: cashSessions.id })
-      .from(cashSessions)
-      .where(isNull(cashSessions.closedAt))
-      .get();
-    if (open) return open.id;
+  private requireOpenSession() {
+    const session = getOpenSession(this.db);
+    if (!session) {
+      throw new Error("No hay un turno de caja abierto");
+    }
+    return session;
+  }
 
-    const sessionId = crypto.randomUUID();
-    openCashSession(this.db, this.ctx, {
-      sessionId,
-      cashierId: "cajero-1",
-      openingFloatCents: 0,
-    });
-    return sessionId;
+  private sessionInfo(): SessionInfo | null {
+    const session = getOpenSession(this.db);
+    if (!session) return null;
+    const user = findUserById(this.db, session.cashierId);
+    return {
+      id: session.id,
+      cashierId: session.cashierId,
+      cashierName: user?.name ?? session.cashierId,
+      openedAt: session.openedAt,
+    };
   }
 }

@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, isNull, sql } from "drizzle-orm";
 import {
   closeCashSession as computeZReport,
   computeExpectedCash,
@@ -167,6 +167,17 @@ export function closeCashSession(
 /** Current expected cash of an open session (for the UI, not for the count). */
 export function getExpectedCash(db: DbLike, sessionId: string): number {
   return computeExpectedCash(loadSessionMovements(db, sessionId));
+}
+
+export type CashSessionRow = typeof cashSessions.$inferSelect;
+
+/** The drawer has at most one open session (shift) at a time. */
+export function getOpenSession(db: DbLike): CashSessionRow | undefined {
+  return db
+    .select()
+    .from(cashSessions)
+    .where(isNull(cashSessions.closedAt))
+    .get();
 }
 
 function assertSessionOpen(tx: DbLike, sessionId: string) {

@@ -262,10 +262,15 @@ export default function SaleView({ backend, boot, refresh }: Props) {
             <span>{money(total)}</span>
           </div>
 
+          {!boot.session && (
+            <p className="no-shift-hint">
+              Abre un turno en la pestaña Caja para poder cobrar
+            </p>
+          )}
           {!paying ? (
             <button
               className="pay-btn"
-              disabled={cart.lines.length === 0}
+              disabled={cart.lines.length === 0 || !boot.session}
               onClick={() => setPaying(true)}
             >
               Cobrar {total > 0 ? money(total) : ""}
