@@ -23,6 +23,11 @@ body {
 
 .pos { display: flex; flex-direction: column; height: 100%; }
 
+.pos-loading {
+  height: 100%; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 18px;
+}
+
 .pos-header {
   display: flex; align-items: baseline; gap: 16px;
   padding: 10px 18px;

@@ -1,144 +1,70 @@
 import {
   parseScaleEan13,
   settlePayments,
-  type CashRounding,
   type PaymentInput,
-  type PromotionInput,
-  type Settlement,
-  type TaxDefinitionInput,
 } from "@berrypos/domain";
-import { quoteCart, type Cart, type CartQuote } from "../cart.js";
+import { quoteCart, type Cart } from "../cart.js";
+import { SEED_SNAPSHOT } from "../catalog-seed.js";
 import type { ScanResult } from "../db/catalog.js";
+import type {
+  BootstrapData,
+  CheckoutResult,
+  NewProductDraft,
+} from "../service.js";
+
+export type { BootstrapData, CheckoutResult, NewProductDraft };
 
 /**
- * What the sale screen needs from the world. The Tauri build will provide an
- * implementation backed by the local SQLite layer (recordSale et al.); the
- * browser dev build uses the in-memory demo below so the UI can be exercised
- * without a desktop shell.
+ * What the sale screen needs from the world. `HttpBackend` talks to the
+ * local register server (the store SQLite); `MemoryBackend` is the fallback
+ * demo when the server isn't running.
  */
 export interface PosBackend {
-  readonly taxCatalog: TaxDefinitionInput[];
-  readonly promotions: PromotionInput[];
-  readonly cashRounding?: CashRounding;
-  scan(code: string): ScanResult;
-  /** Quote + settle + persist. Throws if the tender doesn't cover the total. */
-  checkout(cart: Cart, payments: PaymentInput[]): CheckoutResult;
-  /**
-   * Register a product at the register (alta rápida) and return it as a
-   * scan result so it lands in the cart immediately.
-   */
-  createProduct(draft: NewProductDraft): ScanResult;
+  /** "server" = real persistence, "demo" = in-memory. */
+  readonly mode: "server" | "demo";
+  bootstrap(): Promise<BootstrapData>;
+  scan(code: string): Promise<ScanResult>;
+  createProduct(draft: NewProductDraft): Promise<ScanResult>;
+  checkout(cart: Cart, payments: PaymentInput[]): Promise<CheckoutResult>;
 }
 
-export interface NewProductDraft {
-  name: string;
-  barcode: string;
-  unitPriceCents: number;
-  isWeighable: boolean;
-}
+const SERVER_URL = "http://127.0.0.1:1421";
 
-export interface CheckoutResult {
-  saleId: string;
-  quote: CartQuote;
-  settlement: Settlement;
-}
+export class HttpBackend implements PosBackend {
+  readonly mode = "server";
 
-interface DemoProduct {
-  id: string;
-  name: string;
-  categoryId?: string;
-  barcodes: string[];
-  scaleItemCode?: string;
-  isWeighable: boolean;
-  unitPriceCents: number;
-  taxCodes: string[];
-  active: boolean;
-}
-
-const DEMO_PRODUCTS: DemoProduct[] = [
-  { id: "soda", name: "Bebida cola 1.5L", categoryId: "bebidas", barcodes: ["7801234567897"], isWeighable: false, unitPriceCents: 1890, taxCodes: ["IVA19"], active: true },
-  { id: "bread", name: "Pan de molde", categoryId: "abarrotes", barcodes: ["7802345678904"], isWeighable: false, unitPriceCents: 2290, taxCodes: ["IVA19"], active: true },
-  { id: "milk", name: "Leche entera 1L", categoryId: "lacteos", barcodes: ["7803456789011"], isWeighable: false, unitPriceCents: 1190, taxCodes: ["IVA19"], active: true },
-  { id: "rice", name: "Arroz granel (kg)", categoryId: "abarrotes", barcodes: [], scaleItemCode: "12345", isWeighable: true, unitPriceCents: 1690, taxCodes: ["IVA19"], active: true },
-  { id: "tomato", name: "Tomate (kg)", categoryId: "verduras", barcodes: [], scaleItemCode: "20001", isWeighable: true, unitPriceCents: 2490, taxCodes: ["IVA19"], active: true },
-  { id: "chips", name: "Papas fritas 200g", categoryId: "snacks", barcodes: ["7804567890128"], isWeighable: false, unitPriceCents: 2590, taxCodes: ["IVA19"], active: true },
-];
-
-const DEMO_TAXES: TaxDefinitionInput[] = [
-  { code: "IVA19", name: "IVA 19%", rateBp: 1900, includedInPrice: true },
-];
-
-const DEMO_PROMOTIONS: PromotionInput[] = [
-  { id: "2x1-soda", name: "2x1 bebidas cola", type: "nxm", productIds: ["soda"], buyQty: 2, payQty: 1 },
-  { id: "vol-rice", name: "Arroz desde 2 kg a $1.490", type: "volume_price", productIds: ["rice"], minQtyMilli: 2000, unitPriceCents: 1490 },
-  { id: "snacks-10", name: "10% snacks", type: "category_percent", categoryIds: ["snacks"], valueBp: 1000 },
-];
-
-/** Browser demo: same domain engines, catalog and receipts kept in memory. */
-export class MemoryBackend implements PosBackend {
-  readonly taxCatalog = DEMO_TAXES;
-  readonly promotions = DEMO_PROMOTIONS;
-  readonly receipts: CheckoutResult[] = [];
-  /** The demo products plus register-created ones (quick-pick buttons). */
-  readonly products: DemoProduct[] = [...DEMO_PRODUCTS];
-
-  scan(code: string): ScanResult {
-    const scale = parseScaleEan13(code);
-    if (scale) {
-      const product = this.products.find(
-        (p) => p.scaleItemCode === scale.itemCode && p.active,
-      );
-      if (!product) return { kind: "not_found" };
-      return scale.kind === "weight"
-        ? { kind: "weighed", product: toRow(product), qtyMilli: scale.weightQtyMilli }
-        : { kind: "priced", product: toRow(product), priceCents: scale.priceCents };
-    }
-    const product = this.products.find(
-      (p) => p.barcodes.includes(code) && p.active,
-    );
-    return product
-      ? { kind: "product", product: toRow(product) }
-      : { kind: "not_found" };
-  }
-
-  createProduct(draft: NewProductDraft): ScanResult {
-    if (this.products.some((p) => p.barcodes.includes(draft.barcode))) {
-      throw new Error(`El código ${draft.barcode} ya está asignado a otro producto`);
-    }
-    const product: DemoProduct = {
-      id: crypto.randomUUID(),
-      name: draft.name,
-      barcodes: [draft.barcode],
-      isWeighable: draft.isWeighable,
-      unitPriceCents: draft.unitPriceCents,
-      taxCodes: ["IVA19"],
-      active: true,
-    };
-    this.products.push(product);
-    return { kind: "product", product: toRow(product) };
-  }
-
-  checkout(cart: Cart, payments: PaymentInput[]): CheckoutResult {
-    const quote = quoteCart(cart, this.promotions, this.taxCatalog);
-    const settlement = settlePayments({
-      totalCents: quote.totals.totalCents,
-      payments,
+  private async call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+    const res = await fetch(`${SERVER_URL}${path}`, {
+      method,
+      ...(body !== undefined
+        ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+        : {}),
     });
-    if (settlement.status !== "paid") {
-      throw new Error("El pago no cubre el total de la venta");
-    }
-    const result: CheckoutResult = {
-      saleId: crypto.randomUUID(),
-      quote,
-      settlement,
-    };
-    this.receipts.push(result);
-    return result;
+    const json = (await res.json()) as T & { error?: string };
+    if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+    return json;
+  }
+
+  bootstrap() {
+    return this.call<BootstrapData>("GET", "/bootstrap");
+  }
+  scan(code: string) {
+    return this.call<ScanResult>("POST", "/scan", { code });
+  }
+  createProduct(draft: NewProductDraft) {
+    return this.call<ScanResult>("POST", "/products", draft);
+  }
+  checkout(cart: Cart, payments: PaymentInput[]) {
+    return this.call<CheckoutResult>("POST", "/checkout", { cart, payments });
   }
 }
 
-function toRow(p: DemoProduct): Extract<ScanResult, { kind: "product" }>["product"] {
-  return {
+type SeedProduct = BootstrapData["products"][number];
+
+/** Browser demo without the server: same engines, nothing persists. */
+export class MemoryBackend implements PosBackend {
+  readonly mode = "demo";
+  private readonly products: SeedProduct[] = SEED_SNAPSHOT.products.map((p) => ({
     id: p.id,
     name: p.name,
     categoryId: p.categoryId ?? null,
@@ -147,6 +73,65 @@ function toRow(p: DemoProduct): Extract<ScanResult, { kind: "product" }>["produc
     unitPriceCents: p.unitPriceCents,
     taxCodes: p.taxCodes,
     active: p.active,
-    source: "cloud",
-  };
+    source: "cloud" as const,
+    barcodes: [...p.barcodes],
+  }));
+
+  async bootstrap(): Promise<BootstrapData> {
+    return {
+      products: this.products,
+      taxCatalog: SEED_SNAPSHOT.taxCatalog,
+      promotions: SEED_SNAPSHOT.promotions,
+      cashSessionId: "demo-session",
+    };
+  }
+
+  async scan(code: string): Promise<ScanResult> {
+    const scale = parseScaleEan13(code);
+    if (scale) {
+      const product = this.products.find(
+        (p) => p.scaleItemCode === scale.itemCode && p.active,
+      );
+      if (!product) return { kind: "not_found" };
+      return scale.kind === "weight"
+        ? { kind: "weighed", product, qtyMilli: scale.weightQtyMilli }
+        : { kind: "priced", product, priceCents: scale.priceCents };
+    }
+    const product = this.products.find(
+      (p) => p.barcodes.includes(code) && p.active,
+    );
+    return product ? { kind: "product", product } : { kind: "not_found" };
+  }
+
+  async createProduct(draft: NewProductDraft): Promise<ScanResult> {
+    if (this.products.some((p) => p.barcodes.includes(draft.barcode))) {
+      throw new Error(`El código ${draft.barcode} ya está asignado a otro producto`);
+    }
+    const product: SeedProduct = {
+      id: crypto.randomUUID(),
+      name: draft.name,
+      categoryId: null,
+      scaleItemCode: null,
+      isWeighable: draft.isWeighable,
+      unitPriceCents: draft.unitPriceCents,
+      taxCodes: ["IVA19"],
+      active: true,
+      source: "local",
+      barcodes: [draft.barcode],
+    };
+    this.products.push(product);
+    return { kind: "product", product };
+  }
+
+  async checkout(cart: Cart, payments: PaymentInput[]): Promise<CheckoutResult> {
+    const quote = quoteCart(cart, SEED_SNAPSHOT.promotions, SEED_SNAPSHOT.taxCatalog);
+    const settlement = settlePayments({
+      totalCents: quote.totals.totalCents,
+      payments,
+    });
+    if (settlement.status !== "paid") {
+      throw new Error("El pago no cubre el total de la venta");
+    }
+    return { saleId: crypto.randomUUID(), quote, settlement };
+  }
 }

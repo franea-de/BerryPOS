@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ean13CheckDigit, type PaymentInput } from "@berrypos/domain";
 import {
   addScan,
@@ -8,10 +8,15 @@ import {
   updateLine,
   type Cart,
 } from "../cart.js";
-import { MemoryBackend, type CheckoutResult, type NewProductDraft } from "./backend.js";
+import {
+  HttpBackend,
+  MemoryBackend,
+  type BootstrapData,
+  type CheckoutResult,
+  type NewProductDraft,
+  type PosBackend,
+} from "./backend.js";
 import RegisterProduct from "./RegisterProduct.js";
-
-const backend = new MemoryBackend();
 
 function money(cents: number): string {
   return `$${(cents / 100).toLocaleString("es-CL", {
@@ -27,6 +32,8 @@ function qty(qtyMilli: number, weighable: boolean): string {
 }
 
 export default function App() {
+  const [backend, setBackend] = useState<PosBackend | null>(null);
+  const [boot, setBoot] = useState<BootstrapData | null>(null);
   const [cart, setCart] = useState<Cart>(EMPTY_CART);
   const [code, setCode] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -36,26 +43,55 @@ export default function App() {
   const [registering, setRegistering] = useState<string | null>(null);
   const scanRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // Prefer the local register server (real SQLite); fall back to demo.
+      const http = new HttpBackend();
+      try {
+        const data = await http.bootstrap();
+        if (!cancelled) {
+          setBackend(http);
+          setBoot(data);
+        }
+      } catch {
+        const demo = new MemoryBackend();
+        const data = await demo.bootstrap();
+        if (!cancelled) {
+          setBackend(demo);
+          setBoot(data);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const quote = useMemo(
     () =>
-      cart.lines.length > 0
-        ? quoteCart(cart, backend.promotions, backend.taxCatalog)
+      boot && cart.lines.length > 0
+        ? quoteCart(cart, boot.promotions, boot.taxCatalog)
         : null,
-    [cart],
+    [cart, boot],
   );
+
+  if (!backend || !boot) {
+    return <div className="pos-loading">Conectando con la caja…</div>;
+  }
 
   function flash(text: string) {
     setMessage(text);
     window.setTimeout(() => setMessage(null), 2500);
   }
 
-  function handleScan() {
+  async function handleScan() {
     const trimmed = code.trim();
     setCode("");
     scanRef.current?.focus();
-    if (!trimmed) return;
+    if (!trimmed || !backend) return;
     try {
-      const result = backend.scan(trimmed);
+      const result = await backend.scan(trimmed);
       if (result.kind === "not_found") {
         // Unknown code: offer to register the product on the spot.
         setRegistering(trimmed);
@@ -68,25 +104,35 @@ export default function App() {
     }
   }
 
-  function registerAndAdd(draft: NewProductDraft) {
-    const result = backend.createProduct(draft);
+  async function quickAdd(barcodeOrScale: string) {
+    if (!backend) return;
+    setCode("");
+    try {
+      const result = await backend.scan(barcodeOrScale);
+      if (result.kind !== "not_found") {
+        setReceipt(null);
+        setCart((c) => addScan(c, result));
+      }
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Error de escaneo");
+    }
+  }
+
+  async function registerAndAdd(draft: NewProductDraft) {
+    if (!backend) return;
+    const result = await backend.createProduct(draft);
     setRegistering(null);
     setReceipt(null);
     setCart((c) => addScan(c, result));
+    setBoot(await backend.bootstrap()); // refresh the quick-pick grid
     flash(`Producto registrado: ${draft.name}`);
     scanRef.current?.focus();
   }
 
-  function quickAdd(barcodeOrScale: string) {
-    setCode("");
-    setReceipt(null);
-    const result = backend.scan(barcodeOrScale);
-    if (result.kind !== "not_found") setCart((c) => addScan(c, result));
-  }
-
-  function pay(payments: PaymentInput[]) {
+  async function pay(payments: PaymentInput[]) {
+    if (!backend) return;
     try {
-      const result = backend.checkout(cart, payments);
+      const result = await backend.checkout(cart, payments);
       setReceipt(result);
       setCart(EMPTY_CART);
       setPaying(false);
@@ -104,7 +150,11 @@ export default function App() {
     <div className="pos">
       <header className="pos-header">
         <h1>🍓 BerryPOS</h1>
-        <span className="pos-mode">Caja 1 — modo demo (sin base de datos)</span>
+        <span className="pos-mode">
+          {backend.mode === "server"
+            ? "Caja 1 — base de datos local conectada"
+            : "Caja 1 — MODO DEMO (el servidor local no responde; nada se guarda)"}
+        </span>
       </header>
 
       <main className="pos-main">
@@ -116,21 +166,21 @@ export default function App() {
               value={code}
               placeholder="Escanear o digitar código de barras…"
               onChange={(e) => setCode(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleScan()}
+              onKeyDown={(e) => e.key === "Enter" && void handleScan()}
             />
-            <button onClick={handleScan}>Agregar</button>
+            <button onClick={() => void handleScan()}>Agregar</button>
             <button className="new-product-btn" onClick={() => setRegistering("")}>
               ➕ Nuevo producto
             </button>
           </div>
 
           <div className="quick-grid">
-            {backend.products.map((p) => (
+            {boot.products.map((p) => (
               <button
                 key={p.id}
                 className="quick-btn"
                 onClick={() =>
-                  quickAdd(
+                  void quickAdd(
                     p.barcodes[0] ??
                       // Weighables: simulate a 1.000 kg scale sticker.
                       demoScaleCode(p.scaleItemCode ?? "00000", 1000),
@@ -271,13 +321,13 @@ export default function App() {
               <div className="pay-panel">
                 <button
                   className="pay-option"
-                  onClick={() => pay([{ method: "card", amountCents: total }])}
+                  onClick={() => void pay([{ method: "card", amountCents: total }])}
                 >
                   💳 Tarjeta ({money(total)})
                 </button>
                 <button
                   className="pay-option"
-                  onClick={() => pay([{ method: "cash", amountCents: total }])}
+                  onClick={() => void pay([{ method: "cash", amountCents: total }])}
                 >
                   💵 Efectivo exacto
                 </button>
@@ -290,13 +340,13 @@ export default function App() {
                     onKeyDown={(e) =>
                       e.key === "Enter" &&
                       cashCents >= total &&
-                      pay([{ method: "cash", amountCents: cashCents }])
+                      void pay([{ method: "cash", amountCents: cashCents }])
                     }
                   />
                   <button
                     disabled={cashCents < total}
                     onClick={() =>
-                      pay([{ method: "cash", amountCents: cashCents }])
+                      void pay([{ method: "cash", amountCents: cashCents }])
                     }
                   >
                     Cobrar

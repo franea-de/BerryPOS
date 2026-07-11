@@ -146,6 +146,26 @@ export function getPromotions(db: DbLike): PromotionInput[] {
 
 export type ProductRow = typeof products.$inferSelect;
 
+export interface ProductWithBarcodes extends ProductRow {
+  barcodes: string[];
+}
+
+/** Active products with their barcodes (quick-pick grid, catalog views). */
+export function listProducts(db: DbLike): ProductWithBarcodes[] {
+  const codesByProduct = new Map<string, string[]>();
+  for (const row of db.select().from(productBarcodes).all()) {
+    const list = codesByProduct.get(row.productId) ?? [];
+    list.push(row.barcode);
+    codesByProduct.set(row.productId, list);
+  }
+  return db
+    .select()
+    .from(products)
+    .where(eq(products.active, true))
+    .all()
+    .map((p) => ({ ...p, barcodes: codesByProduct.get(p.id) ?? [] }));
+}
+
 export interface NewProductInput {
   /** Client-generated UUID — idempotency key. */
   id: string;

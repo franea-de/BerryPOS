@@ -5,7 +5,7 @@ import type { NewProductDraft } from "./backend.js";
 interface Props {
   /** The unknown code that was scanned, or empty for a brand-new product. */
   initialCode: string;
-  onSave: (draft: NewProductDraft) => void;
+  onSave: (draft: NewProductDraft) => Promise<void>;
   onCancel: () => void;
 }
 
@@ -24,10 +24,10 @@ export default function RegisterProduct({ initialCode, onSave, onCancel }: Props
     Number.isInteger(priceCents) &&
     priceCents > 0;
 
-  function save() {
+  async function save() {
     if (!valid) return;
     try {
-      onSave({
+      await onSave({
         name: name.trim(),
         barcode: barcode.trim(),
         unitPriceCents: priceCents,
@@ -72,7 +72,7 @@ export default function RegisterProduct({ initialCode, onSave, onCancel }: Props
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Ej: Galletas surtidas 250g"
-            onKeyDown={(e) => e.key === "Enter" && save()}
+            onKeyDown={(e) => e.key === "Enter" && void save()}
           />
         </label>
 
@@ -83,7 +83,7 @@ export default function RegisterProduct({ initialCode, onSave, onCancel }: Props
             value={priceText}
             onChange={(e) => setPriceText(e.target.value)}
             placeholder="Ej: 14.90"
-            onKeyDown={(e) => e.key === "Enter" && save()}
+            onKeyDown={(e) => e.key === "Enter" && void save()}
           />
         </label>
 
@@ -102,7 +102,7 @@ export default function RegisterProduct({ initialCode, onSave, onCancel }: Props
           <button className="modal-cancel" onClick={onCancel}>
             Cancelar
           </button>
-          <button className="modal-save" disabled={!valid} onClick={save}>
+          <button className="modal-save" disabled={!valid} onClick={() => void save()}>
             Guardar y agregar a la venta
           </button>
         </div>

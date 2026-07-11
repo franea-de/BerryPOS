@@ -1,6 +1,7 @@
 node_modules/
 dist/
 **/src-tauri/target/
+apps/pos/data/
 .turbo/
 coverage/
 *.log

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "server": "vite-node src/server/main.ts",
     "build:ui": "vite build",
     "tauri": "tauri",
     "test": "vitest run",
@@ -31,6 +32,7 @@
     "drizzle-kit": "^0.31.4",
     "typescript": "^5.8.3",
     "vite": "^7.0.0",
+    "vite-node": "^3.2.4",
     "vitest": "^3.2.4"
   }
 }
