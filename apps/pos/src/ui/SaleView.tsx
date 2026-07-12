@@ -49,23 +49,25 @@ export default function SaleView({ backend, boot, user, refresh }: Props) {
     window.setTimeout(() => setMessage(null), 2500);
   }
 
-  /** Add a scan and warn (without blocking) when it oversells the stock. */
-  function addToCart(result: Exclude<ScanResult, { kind: "not_found" }>) {
-    setReceipt(null);
+  /** Add a scan, BLOCKING when it would oversell the registered stock. */
+  function addToCart(
+    result: Exclude<ScanResult, { kind: "not_found" }>,
+    stockOverride?: number,
+  ) {
     const next = addScan(cart, result);
-    setCart(next);
-
     const product = boot.products.find((p) => p.id === result.product.id);
-    if (product) {
-      const inCart = next.lines
-        .filter((l) => l.productId === product.id)
-        .reduce((a, l) => a + l.qtyMilli, 0);
-      if (product.stockMilli - inCart < 0) {
-        flash(
-          `⚠ ${product.name}: stock insuficiente (hay ${qty(Math.max(product.stockMilli, 0), product.isWeighable)}) — se venderá igual y quedará en negativo`,
-        );
-      }
+    const available = stockOverride ?? product?.stockMilli ?? 0;
+    const inCart = next.lines
+      .filter((l) => l.productId === result.product.id)
+      .reduce((a, l) => a + l.qtyMilli, 0);
+    if (inCart > available) {
+      flash(
+        `⛔ Sin stock suficiente de ${result.product.name} (disponible: ${qty(Math.max(available, 0), result.product.isWeighable)}). Registra la recepción primero.`,
+      );
+      return;
     }
+    setReceipt(null);
+    setCart(next);
   }
 
   async function handleScan() {
@@ -108,12 +110,21 @@ export default function SaleView({ backend, boot, user, refresh }: Props) {
     }
   }
 
-  async function registerAndAdd(draft: NewProductDraft) {
+  async function registerAndAdd(draft: NewProductDraft, initialStockMilli?: number) {
     const result = await backend.createProduct(draft);
     setRegistering(null);
-    setReceipt(null);
-    setCart((c) => addScan(c, result));
+    if (result.kind !== "not_found" && initialStockMilli && initialStockMilli > 0) {
+      await backend.receiveStock({
+        movementId: crypto.randomUUID(),
+        productId: result.product.id,
+        qtyMilli: initialStockMilli,
+        note: "stock inicial (alta en caja)",
+      });
+    }
     await refresh();
+    if (result.kind !== "not_found") {
+      addToCart(result, initialStockMilli ?? 0);
+    }
     flash(`Producto registrado: ${draft.name}`);
     scanRef.current?.focus();
   }
@@ -245,13 +256,23 @@ export default function SaleView({ backend, boot, user, refresh }: Props) {
                         −
                       </button>
                       <button
-                        onClick={() =>
+                        onClick={() => {
+                          const product = boot.products.find(
+                            (p) => p.id === line.productId,
+                          );
+                          const inCart = cart.lines
+                            .filter((l) => l.productId === line.productId)
+                            .reduce((a, l) => a + l.qtyMilli, 0);
+                          if (product && inCart + 1000 > product.stockMilli) {
+                            flash(`⛔ Sin stock suficiente de ${product.name}`);
+                            return;
+                          }
                           setCart(
                             updateLine(cart, line.lineId, {
                               qtyMilli: line.qtyMilli + 1000,
                             }),
-                          )
-                        }
+                          );
+                        }}
                       >
                         +
                       </button>
@@ -364,6 +385,7 @@ export default function SaleView({ backend, boot, user, refresh }: Props) {
       {registering !== null && (
         <RegisterProduct
           initialCode={registering}
+          withInitialStock
           onSave={registerAndAdd}
           onCancel={() => {
             setRegistering(null);

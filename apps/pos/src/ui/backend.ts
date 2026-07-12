@@ -148,7 +148,7 @@ export class MemoryBackend implements PosBackend {
     active: p.active,
     source: "cloud" as const,
     barcodes: [...p.barcodes],
-    stockMilli: 0,
+    stockMilli: 10_000, // demo starts with 10 units / 10 kg of everything
   }));
 
   private session: SessionInfo | null = null;
@@ -297,6 +297,18 @@ export class MemoryBackend implements PosBackend {
 
   async checkout(cart: Cart, payments: PaymentInput[]): Promise<CheckoutResult> {
     if (!this.session) throw new Error("No hay un turno de caja abierto");
+    const required = new Map<string, number>();
+    for (const l of cart.lines) {
+      required.set(l.productId, (required.get(l.productId) ?? 0) + l.qtyMilli);
+    }
+    for (const [productId, qtyMilli] of required) {
+      const product = this.products.find((p) => p.id === productId);
+      if (product && qtyMilli > product.stockMilli) {
+        throw new Error(
+          `Sin stock suficiente de "${product.name}". Registra la recepción primero.`,
+        );
+      }
+    }
     const quote = quoteCart(cart, SEED_SNAPSHOT.promotions, SEED_SNAPSHOT.taxCatalog);
     const settlement = settlePayments({
       totalCents: quote.totals.totalCents,

@@ -249,6 +249,7 @@ export class PosService {
   /** Freeze the cart, settle the tender and persist the sale atomically. */
   checkout(cart: Cart, payments: PaymentInput[]): CheckoutResult {
     const session = this.requireOpenSession();
+    this.assertStockAvailable(cart);
     const promotions = getPromotions(this.db);
     const taxCatalog = getTaxCatalog(this.db);
     const quote = quoteCart(cart, promotions, taxCatalog);
@@ -284,6 +285,31 @@ export class PosService {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     return listRecentSales(this.db, { sinceIso: start.toISOString() });
+  }
+
+  /**
+   * Store policy (owner decision): never sell below registered stock.
+   * The ledger itself stays permissive — voids, receptions and sync
+   * corrections are unaffected.
+   */
+  private assertStockAvailable(cart: Cart): void {
+    const stock = projectAllStock(this.db);
+    const required = new Map<string, number>();
+    for (const line of cart.lines) {
+      required.set(
+        line.productId,
+        (required.get(line.productId) ?? 0) + line.qtyMilli,
+      );
+    }
+    for (const [productId, qtyMilli] of required) {
+      const available = stock.get(productId) ?? 0;
+      if (qtyMilli > available) {
+        const product = findProductById(this.db, productId);
+        throw new Error(
+          `Sin stock suficiente de "${product?.name ?? productId}": disponible ${Math.max(available, 0) / 1000}, pedido ${qtyMilli / 1000}. Registra la recepción primero.`,
+        );
+      }
+    }
   }
 
   private requireOpenSession() {

@@ -35,6 +35,14 @@ function openShift(service: PosService, cashierId = "cajero-1", floatCents = 10_
   });
 }
 
+function stockUp(service: PosService, productId: string, qtyMilli: number) {
+  service.receiveStock({
+    movementId: crypto.randomUUID(),
+    productId,
+    qtyMilli,
+  });
+}
+
 describe("PosService", () => {
   it("bootstrap seeds catalog and users; no shift is open by default", () => {
     const { service } = newService();
@@ -79,6 +87,7 @@ describe("PosService", () => {
   it("scan → checkout persists the sale and moves stock", () => {
     const { db, service } = newService();
     openShift(service);
+    stockUp(service, "soda", 5000);
 
     let cart: Cart = EMPTY_CART;
     cart = addScan(cart, service.scan("7751234567892")); // Inca Kola S/ 8.50
@@ -88,12 +97,27 @@ describe("PosService", () => {
     expect(r.quote.totals.totalCents).toBe(850);
     expect(r.settlement.changeCents).toBe(150);
     expect(r.quote.promotions[0]?.promotionId).toBe("2x1-soda");
-    expect(getProductStock(db, "soda")).toBe(-2000);
+    expect(getProductStock(db, "soda")).toBe(3000);
+  });
+
+  it("blocks a sale beyond the registered stock (store policy)", () => {
+    const { service } = newService();
+    openShift(service);
+    stockUp(service, "soda", 1000);
+
+    let cart: Cart = EMPTY_CART;
+    cart = addScan(cart, service.scan("7751234567892"));
+    cart = addScan(cart, service.scan("7751234567892")); // 2 > 1 in stock
+
+    expect(() =>
+      service.checkout(cart, [{ method: "cash", amountCents: 2000 }]),
+    ).toThrow("Sin stock suficiente");
   });
 
   it("cash rounds to 10 céntimos (Peru), cards pay the exact total", () => {
     const { service } = newService();
     openShift(service);
+    stockUp(service, "chips", 2000);
 
     // Chips S/ 7.50 with 10% snacks promo -> S/ 6.75 (not a 10c multiple).
     let cart: Cart = EMPTY_CART;
@@ -115,6 +139,7 @@ describe("PosService", () => {
   it("closes the shift with a blind count and reports the Z + shift sales", () => {
     const { service } = newService();
     openShift(service, "cajero-1", 10_000);
+    stockUp(service, "soda", 1000);
 
     let cart: Cart = EMPTY_CART;
     cart = addScan(cart, service.scan("7751234567892"));
@@ -149,6 +174,8 @@ describe("PosService", () => {
 
   it("daily summary groups activity per cashier", () => {
     const { service } = newService();
+    stockUp(service, "soda", 1000);
+    stockUp(service, "bread", 2000);
 
     openShift(service, "cajero-1", 5000);
     let cart: Cart = EMPTY_CART;
@@ -181,16 +208,17 @@ describe("PosService", () => {
   it("voids a sale: stock returns, cash refunds, summaries exclude it", () => {
     const { db, service } = newService();
     openShift(service, "cajero-1", 10_000);
+    stockUp(service, "soda", 1000);
 
     let cart: Cart = EMPTY_CART;
     cart = addScan(cart, service.scan("7751234567892"));
     const sale = service.checkout(cart, [{ method: "cash", amountCents: 850 }]);
-    expect(getProductStock(db, "soda")).toBe(-1000);
+    expect(getProductStock(db, "soda")).toBe(0);
 
     const r = service.voidSale({ saleId: sale.saleId, voidedBy: "admin" });
     expect(r.alreadyVoided).toBe(false);
     // Stock came back and voiding twice is a no-op.
-    expect(getProductStock(db, "soda")).toBe(0);
+    expect(getProductStock(db, "soda")).toBe(1000);
     expect(service.voidSale({ saleId: sale.saleId, voidedBy: "admin" }).alreadyVoided).toBe(true);
 
     // The recent list shows it voided; the daily summary no longer counts it.
@@ -210,6 +238,8 @@ describe("PosService", () => {
   it("voiding a cash sale without an open shift is rejected", () => {
     const { service } = newService();
     openShift(service);
+    stockUp(service, "soda", 1000);
+    stockUp(service, "bread", 1000);
     let cart: Cart = EMPTY_CART;
     cart = addScan(cart, service.scan("7751234567892"));
     const sale = service.checkout(cart, [{ method: "cash", amountCents: 850 }]);
@@ -280,12 +310,14 @@ describe("PosService", () => {
       const service = new PosService(firstDb, CTX);
       service.bootstrap();
       openShift(service);
-      service.registerProduct({
+      const created = service.registerProduct({
         name: "Yerba mate 500g",
         barcode: "7791111111116",
         unitPriceCents: 3990,
         isWeighable: false,
       });
+      if (created.kind !== "product") throw new Error("expected product");
+      stockUp(service, created.product.id, 1000);
       let cart: Cart = EMPTY_CART;
       cart = addScan(cart, service.scan("7791111111116"));
       service.checkout(cart, [{ method: "card", amountCents: 3990 }]);
@@ -301,7 +333,7 @@ describe("PosService", () => {
       const scan = service.scan("7791111111116");
       if (scan.kind !== "product") throw new Error("expected product");
       expect(scan.product.name).toBe("Yerba mate 500g");
-      expect(getProductStock(db, scan.product.id)).toBe(-1000);
+      expect(getProductStock(db, scan.product.id)).toBe(0); // received 1, sold 1
       // The open shift survives the restart too.
       expect(boot.session?.cashierId).toBe("cajero-1");
     } finally {

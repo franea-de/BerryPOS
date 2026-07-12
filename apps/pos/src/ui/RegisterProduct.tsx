@@ -5,34 +5,50 @@ import type { NewProductDraft } from "./backend.js";
 interface Props {
   /** The unknown code that was scanned, or empty for a brand-new product. */
   initialCode: string;
-  onSave: (draft: NewProductDraft) => Promise<void>;
+  /** Sale-screen flow: ask how many units arrived so the sale isn't blocked. */
+  withInitialStock?: boolean;
+  onSave: (draft: NewProductDraft, initialStockMilli?: number) => Promise<void>;
   onCancel: () => void;
 }
 
 /** Alta rápida: register a product without leaving the sale. */
-export default function RegisterProduct({ initialCode, onSave, onCancel }: Props) {
+export default function RegisterProduct({
+  initialCode,
+  withInitialStock = false,
+  onSave,
+  onCancel,
+}: Props) {
   const [barcode, setBarcode] = useState(initialCode);
   const [name, setName] = useState("");
   const [priceText, setPriceText] = useState("");
+  const [stockText, setStockText] = useState("1");
   const [weighable, setWeighable] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const priceCents = Math.round(Number(priceText.replace(",", ".")) * 100);
+  const stockValue = Number(stockText.replace(",", "."));
+  const stockMilli = weighable
+    ? Math.round(stockValue * 1000)
+    : Math.round(stockValue) * 1000;
   const valid =
     barcode.trim().length > 0 &&
     name.trim().length > 0 &&
     Number.isInteger(priceCents) &&
-    priceCents > 0;
+    priceCents > 0 &&
+    (!withInitialStock || (Number.isFinite(stockMilli) && stockMilli > 0));
 
   async function save() {
     if (!valid) return;
     try {
-      await onSave({
-        name: name.trim(),
-        barcode: barcode.trim(),
-        unitPriceCents: priceCents,
-        isWeighable: weighable,
-      });
+      await onSave(
+        {
+          name: name.trim(),
+          barcode: barcode.trim(),
+          unitPriceCents: priceCents,
+          isWeighable: weighable,
+        },
+        withInitialStock ? stockMilli : undefined,
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo registrar");
     }
@@ -95,6 +111,18 @@ export default function RegisterProduct({ initialCode, onSave, onCancel }: Props
           />
           Se vende por peso (balanza)
         </label>
+
+        {withInitialStock && (
+          <label>
+            Cantidad disponible {weighable ? "(kg)" : "(unidades)"}
+            <input
+              inputMode="decimal"
+              value={stockText}
+              onChange={(e) => setStockText(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void save()}
+            />
+          </label>
+        )}
 
         {error && <div className="flash">{error}</div>}
 
