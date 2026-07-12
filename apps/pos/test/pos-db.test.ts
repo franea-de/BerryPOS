@@ -342,6 +342,46 @@ describe("stock movements", () => {
   });
 });
 
+describe("push loop", () => {
+  it("drains the outbox through a transport and stops on no progress", async () => {
+    const { pushOnce } = await import("../src/server/sync-loop.js");
+    recordStockMovement(db, CTX, {
+      movementId: "rcv-9",
+      productId: "rice",
+      kind: "reception",
+      qtyMilli: 1000,
+    });
+    const before = getPendingEvents(db);
+    expect(before.length).toBeGreaterThan(0);
+
+    // Cloud accepts everything: outbox fully drained.
+    const cleared = await pushOnce(db, async (request) => {
+      const { events } = request as { events: Array<{ eventId: string }> };
+      return { accepted: events.map((e) => e.eventId), duplicates: [], rejected: [] };
+    });
+    expect(cleared).toBe(before.length);
+    expect(getPendingEvents(db)).toHaveLength(0);
+
+    // Cloud rejects everything: no progress, no infinite loop.
+    recordStockMovement(db, CTX, {
+      movementId: "rcv-10",
+      productId: "rice",
+      kind: "reception",
+      qtyMilli: 1000,
+    });
+    const rejectedRun = await pushOnce(db, async (request) => {
+      const { events } = request as { events: Array<{ eventId: string }> };
+      return {
+        accepted: [],
+        duplicates: [],
+        rejected: events.map((e) => ({ eventId: e.eventId, reason: "test" })),
+      };
+    });
+    expect(rejectedRun).toBe(0);
+    expect(getPendingEvents(db).length).toBeGreaterThan(0);
+  });
+});
+
 describe("outbox sync flow", () => {
   it("pushes pending events and clears accepted + duplicates, keeps rejected", () => {
     recordStockMovement(db, CTX, {

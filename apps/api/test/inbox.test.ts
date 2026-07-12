@@ -9,9 +9,12 @@ import * as schema from "../src/db/schema.js";
 import { devices, inboxEvents, stores, tenants } from "../src/db/schema.js";
 import { SyncInbox } from "../src/sync/inbox.js";
 
-const ADMIN_URL =
+// Tests run in their own database so they never clobber dev data.
+const ADMIN_URL = (
   process.env.DATABASE_ADMIN_URL ??
-  "postgres://postgres:berrypos@127.0.0.1:5433/berrypos";
+  "postgres://postgres:berrypos@127.0.0.1:5433/berrypos"
+).replace(/\/[^/]+$/, "/berrypos_test");
+const APP_URL = "postgres://berrypos_app:berrypos@127.0.0.1:5433/berrypos_test";
 
 const IDENTITY = { tenantId: "t-a", storeId: "s-1", deviceId: "caja-1" };
 
@@ -56,10 +59,22 @@ let app: { db: ApiDb; pool: pg.Pool };
 let inbox: SyncInbox;
 
 beforeAll(async () => {
+  // Create the test database (idempotent), then migrate it.
+  const bootstrapPool = new pg.Pool({
+    connectionString: ADMIN_URL.replace(/\/[^/]+$/, "/postgres"),
+  });
+  const exists = await bootstrapPool.query(
+    "SELECT 1 FROM pg_database WHERE datname = 'berrypos_test'",
+  );
+  if (exists.rowCount === 0) {
+    await bootstrapPool.query("CREATE DATABASE berrypos_test");
+  }
+  await bootstrapPool.end();
+
   adminPool = new pg.Pool({ connectionString: ADMIN_URL });
   adminDb = drizzle(adminPool, { schema });
   await migrate(adminDb, { migrationsFolder: "drizzle" });
-  app = createDb();
+  app = createDb(APP_URL);
   inbox = new SyncInbox(app.db);
 });
 

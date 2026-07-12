@@ -4,10 +4,12 @@ import http from "node:http";
 import { extname, join, normalize } from "node:path";
 import { openPosDb } from "../db/connect.js";
 import type { DeviceContext } from "../db/context.js";
+import { getPendingEvents } from "../db/outbox.js";
 import { packageRoot } from "../paths.js";
 import { PosService } from "../service.js";
 import { renderTicketEscPos } from "../ticket.js";
 import { printRaw } from "./printer.js";
+import { startSyncLoop, type SyncStatus } from "./sync-loop.js";
 
 /**
  * Local register server: the ONLY process that touches the store SQLite.
@@ -34,6 +36,21 @@ const service = new PosService(
   CTX,
   process.env.BERRYPOS_STORE_NAME ?? "BerryPOS",
 );
+
+// Cloud sync is opt-in: the register works forever without it.
+const CLOUD_URL = process.env.BERRYPOS_CLOUD_URL;
+const syncStatus: SyncStatus = CLOUD_URL
+  ? startSyncLoop(db, {
+      cloudUrl: CLOUD_URL,
+      apiKey: process.env.BERRYPOS_API_KEY ?? "dev-key",
+    })
+  : {
+      enabled: false,
+      cloudUrl: null,
+      lastPushAt: null,
+      lastError: null,
+      lastRejected: [],
+    };
 
 function readBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -147,6 +164,8 @@ async function handle(
     }
     case "GET /summary/today":
       return service.dailySummary();
+    case "GET /sync/status":
+      return { ...syncStatus, pending: getPendingEvents(db).length };
     case "GET /sales/recent":
       return service.recentSales();
     case "POST /sales/void": {
