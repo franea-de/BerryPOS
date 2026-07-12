@@ -23,21 +23,28 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Prefer the local register server (real SQLite); fall back to demo.
+      // Prefer the local register server (real SQLite). The desktop shell
+      // spawns it in parallel with the window, so retry before giving up
+      // and falling back to the in-memory demo.
       const http = new HttpBackend();
-      try {
-        const data = await http.bootstrap();
-        if (!cancelled) {
-          setBackend(http);
-          setBoot(data);
+      for (let attempt = 0; attempt < 10 && !cancelled; attempt++) {
+        try {
+          const data = await http.bootstrap();
+          if (!cancelled) {
+            setBackend(http);
+            setBoot(data);
+          }
+          return;
+        } catch {
+          await new Promise((r) => setTimeout(r, 500));
         }
-      } catch {
-        const demo = new MemoryBackend();
-        const data = await demo.bootstrap();
-        if (!cancelled) {
-          setBackend(demo);
-          setBoot(data);
-        }
+      }
+      if (cancelled) return;
+      const demo = new MemoryBackend();
+      const data = await demo.bootstrap();
+      if (!cancelled) {
+        setBackend(demo);
+        setBoot(data);
       }
     })();
     return () => {

@@ -1,20 +1,24 @@
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import http from "node:http";
-import { fileURLToPath } from "node:url";
+import { extname, join, normalize } from "node:path";
 import { openPosDb } from "../db/connect.js";
 import type { DeviceContext } from "../db/context.js";
+import { packageRoot } from "../paths.js";
 import { PosService } from "../service.js";
 
 /**
  * Local register server: the ONLY process that touches the store SQLite.
- * The sale screen (browser dev or the Tauri webview) talks to it over
- * localhost JSON. Later the same server feeds the LAN KDS and runs the
- * cloud sync loop.
+ * It also serves the built sale screen, so one process is the whole POS:
+ * the desktop shell (or any browser on this machine) just opens
+ * http://127.0.0.1:1421. Later the same server feeds the LAN KDS and runs
+ * the cloud sync loop.
  */
 
+const ROOT = packageRoot(import.meta.url);
 const PORT = Number(process.env.BERRYPOS_PORT ?? 1421);
-const DB_FILE =
-  process.env.BERRYPOS_DB ??
-  fileURLToPath(new URL("../../data/berrypos.sqlite", import.meta.url));
+const DB_FILE = process.env.BERRYPOS_DB ?? join(ROOT, "data", "berrypos.sqlite");
+const UI_DIR = join(ROOT, "dist");
 
 const CTX: DeviceContext = {
   tenantId: process.env.BERRYPOS_TENANT ?? "dev",
@@ -41,8 +45,40 @@ function readBody(req: http.IncomingMessage): Promise<unknown> {
   });
 }
 
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript",
+  ".css": "text/css",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+};
+
+/** Serve the built UI; unknown paths fall back to index.html (SPA). */
+async function serveStatic(
+  pathname: string,
+  res: http.ServerResponse,
+): Promise<boolean> {
+  if (!existsSync(UI_DIR)) return false;
+  const relative = pathname === "/" ? "index.html" : pathname.slice(1);
+  let file = normalize(join(UI_DIR, relative));
+  if (!file.startsWith(UI_DIR)) return false; // no path traversal
+  if (!existsSync(file)) file = join(UI_DIR, "index.html");
+  try {
+    const body = await readFile(file);
+    res.writeHead(200, {
+      "Content-Type": MIME[extname(file)] ?? "application/octet-stream",
+    });
+    res.end(body);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const server = http.createServer(async (req, res) => {
-  // The UI runs on another local origin (vite 1420 / tauri://).
+  // The UI may also run on another local origin (vite 1420 / tauri://).
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -51,10 +87,12 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const route = `${req.method} ${req.url?.split("?")[0]}`;
+  const pathname = req.url?.split("?")[0] ?? "/";
+  const route = `${req.method} ${pathname}`;
   try {
     const result = await handle(route, req);
     if (result === undefined) {
+      if (req.method === "GET" && (await serveStatic(pathname, res))) return;
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: `unknown route ${route}` }));
       return;

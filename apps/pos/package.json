@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "server": "vite-node src/server/main.ts",
+    "build:server": "node scripts/build-server.mjs",
+    "build:app": "pnpm build:ui && pnpm build:server",
     "build:ui": "vite build",
     "tauri": "tauri",
     "test": "vitest run",
@@ -30,6 +32,7 @@
     "@vitejs/plugin-react": "^4.6.0",
     "better-sqlite3": "^12.2.0",
     "drizzle-kit": "^0.31.4",
+    "esbuild": "^0.25.0",
     "typescript": "^5.8.3",
     "vite": "^7.0.0",
     "vite-node": "^3.2.4",

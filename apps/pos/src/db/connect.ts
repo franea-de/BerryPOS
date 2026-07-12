@@ -1,9 +1,9 @@
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { packageRoot } from "../paths.js";
 import * as schema from "./schema.js";
 import type { PosDb } from "./context.js";
 
@@ -23,7 +23,7 @@ export function openPosDb(file: string): PosDbHandle {
   sqlite.pragma("foreign_keys = ON");
   const db = drizzle(sqlite, { schema });
   migrate(db, {
-    migrationsFolder: fileURLToPath(new URL("../../drizzle", import.meta.url)),
+    migrationsFolder: join(packageRoot(import.meta.url), "drizzle"),
   });
   return db;
 }

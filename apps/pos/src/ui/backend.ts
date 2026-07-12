@@ -77,7 +77,12 @@ export interface PosBackend {
   }): Promise<{ alreadyVoided: boolean }>;
 }
 
-const SERVER_URL = "http://127.0.0.1:1421";
+// Same-origin when the register server itself serves the UI; absolute when
+// running from the vite dev server or the Tauri asset protocol.
+const SERVER_URL =
+  typeof window !== "undefined" && window.location.port === "1421"
+    ? ""
+    : "http://127.0.0.1:1421";
 
 export class HttpBackend implements PosBackend {
   readonly mode = "server";
