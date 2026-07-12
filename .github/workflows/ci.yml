@@ -8,6 +8,23 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: berrypos
+          POSTGRES_DB: berrypos
+        ports:
+          - "5433:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_ADMIN_URL: postgres://postgres:berrypos@127.0.0.1:5433/berrypos
+      DATABASE_URL: postgres://berrypos_app:berrypos@127.0.0.1:5433/berrypos
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
