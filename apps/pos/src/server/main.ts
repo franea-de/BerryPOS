@@ -6,6 +6,8 @@ import { openPosDb } from "../db/connect.js";
 import type { DeviceContext } from "../db/context.js";
 import { packageRoot } from "../paths.js";
 import { PosService } from "../service.js";
+import { renderTicketEscPos } from "../ticket.js";
+import { printRaw } from "./printer.js";
 
 /**
  * Local register server: the ONLY process that touches the store SQLite.
@@ -27,7 +29,11 @@ const CTX: DeviceContext = {
 };
 
 const db = openPosDb(DB_FILE);
-const service = new PosService(db, CTX);
+const service = new PosService(
+  db,
+  CTX,
+  process.env.BERRYPOS_STORE_NAME ?? "BerryPOS",
+);
 
 function readBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -165,6 +171,19 @@ async function handle(
         PosService["receiveStock"]
       >[0];
       return service.receiveStock(body);
+    }
+    case "POST /print/receipt": {
+      const body = (await readBody(req)) as { saleId?: string };
+      if (typeof body.saleId !== "string") throw new Error("saleId is required");
+      const ticket = service.receiptTicket(body.saleId);
+      let printed = false;
+      let printError: string | undefined;
+      try {
+        printed = await printRaw(renderTicketEscPos(ticket.data));
+      } catch (e) {
+        printError = e instanceof Error ? e.message : String(e);
+      }
+      return { printed, preview: ticket.text, ...(printError ? { printError } : {}) };
     }
     case "POST /checkout": {
       const body = (await readBody(req)) as {

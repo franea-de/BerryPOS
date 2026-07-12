@@ -258,6 +258,21 @@ export function voidSale(
   });
 }
 
+/** Raw rows a receipt ticket needs; the service assembles the names. */
+export function getSaleForTicket(db: PosDb, saleId: string) {
+  const sale = db.select().from(sales).where(eq(sales.id, saleId)).get();
+  if (!sale) throw new Error(`sale "${saleId}" does not exist`);
+  return {
+    sale,
+    lines: db.select().from(saleLines).where(eq(saleLines.saleId, saleId)).all(),
+    payments: db
+      .select()
+      .from(paymentsTable)
+      .where(eq(paymentsTable.saleId, saleId))
+      .all(),
+  };
+}
+
 export interface RecentSale {
   id: string;
   createdAt: string;

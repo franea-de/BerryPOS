@@ -14,6 +14,7 @@ import type {
   CheckoutResult,
   NewProductDraft,
   PosBackend,
+  PrintResult,
   UserSummary,
 } from "./backend.js";
 import RegisterProduct from "./RegisterProduct.js";
@@ -34,6 +35,7 @@ export default function SaleView({ backend, boot, user, refresh }: Props) {
   const [cashText, setCashText] = useState("");
   const [receipt, setReceipt] = useState<CheckoutResult | null>(null);
   const [registering, setRegistering] = useState<string | null>(null);
+  const [ticket, setTicket] = useState<PrintResult | null>(null);
   const scanRef = useRef<HTMLInputElement>(null);
 
   const quote = useMemo(
@@ -210,9 +212,23 @@ export default function SaleView({ backend, boot, user, refresh }: Props) {
                   .join(", ")}
               </p>
             )}
-            <button className="void-btn" onClick={() => void voidReceipt()}>
-              Anular esta venta
-            </button>
+            <div className="receipt-actions">
+              <button
+                className="print-btn"
+                onClick={async () => {
+                  try {
+                    setTicket(await backend.printReceipt(receipt.saleId));
+                  } catch (e) {
+                    flash(e instanceof Error ? e.message : "No se pudo imprimir");
+                  }
+                }}
+              >
+                🖨 Ticket
+              </button>
+              <button className="void-btn" onClick={() => void voidReceipt()}>
+                Anular esta venta
+              </button>
+            </div>
           </div>
         )}
       </section>
@@ -392,6 +408,27 @@ export default function SaleView({ backend, boot, user, refresh }: Props) {
             scanRef.current?.focus();
           }}
         />
+      )}
+
+      {ticket && (
+        <div className="modal-backdrop" onClick={() => setTicket(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Ticket</h2>
+            <p className="modal-hint">
+              {ticket.printed
+                ? "Enviado a la impresora"
+                : ticket.printError
+                  ? `Error de impresora: ${ticket.printError}`
+                  : "Sin impresora configurada — vista previa"}
+            </p>
+            <pre className="ticket-pre">{ticket.preview}</pre>
+            <div className="modal-actions">
+              <button className="modal-save" onClick={() => setTicket(null)}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </main>
   );

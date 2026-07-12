@@ -8,6 +8,7 @@ import type {
   Settlement,
   TaxDefinitionInput,
 } from "@berrypos/domain";
+import { computeSaleTotals, type SaleInput } from "@berrypos/domain";
 import { quoteCart, toRecordSaleParams, type Cart } from "./cart.js";
 import { SEED_CASH_ROUNDING, SEED_SNAPSHOT } from "./catalog-seed.js";
 import { hashPin } from "./pin.js";
@@ -27,16 +28,19 @@ import {
 } from "./db/catalog.js";
 import {
   closeCashSession,
+  findSessionById,
   getOpenSession,
   openCashSession,
   recordCashMovement,
 } from "./db/cash.js";
 import {
+  getSaleForTicket,
   listRecentSales,
   recordSale,
   voidSale,
   type RecentSale,
 } from "./db/sales.js";
+import { renderTicketText, type TicketData } from "./ticket.js";
 import {
   getDailyCashierSummary,
   getSessionSalesSummary,
@@ -109,6 +113,7 @@ export class PosService {
   constructor(
     private readonly db: PosDb,
     private readonly ctx: DeviceContext,
+    private readonly storeName = "BerryPOS",
   ) {}
 
   /** Seed/upgrade the base catalog and load everything the UI needs. */
@@ -278,6 +283,49 @@ export class PosService {
       currentSessionId: open?.id ?? null,
       ...(params.reason ? { reason: params.reason } : {}),
     });
+  }
+
+  /** Build the receipt ticket of a persisted sale (data + text preview). */
+  receiptTicket(saleId: string): { data: TicketData; text: string } {
+    const { sale, lines, payments } = getSaleForTicket(this.db, saleId);
+
+    const session = findSessionById(this.db, sale.cashSessionId);
+    const cashier = session ? findUserById(this.db, session.cashierId) : undefined;
+    const input = sale.input as { sale: SaleInput };
+    const totals = computeSaleTotals(input.sale);
+
+    const data: TicketData = {
+      storeName: this.storeName,
+      storeLine2: "Documento interno de venta",
+      deviceId: this.ctx.deviceId,
+      cashierName: cashier?.name ?? session?.cashierId ?? "-",
+      saleId: sale.id,
+      dateIso: sale.createdAt,
+      lines: lines.map((line) => ({
+        name: findProductById(this.db, line.productId)?.name ?? line.productId,
+        qtyMilli: line.qtyMilli,
+        isWeighable:
+          findProductById(this.db, line.productId)?.isWeighable ?? false,
+        unitPriceCents: line.unitPriceCents,
+        totalCents: line.totalCents,
+        discountCents: line.discountCents,
+      })),
+      grossCents: totals.grossCents,
+      discountCents: totals.discountCents,
+      totalCents: sale.totalCents,
+      taxBreakdown: totals.taxBreakdown.map((t) => ({
+        code: t.code,
+        taxCents: t.taxCents,
+      })),
+      payments: payments.map((p) => ({
+        method: p.method,
+        amountCents: p.amountCents,
+      })),
+      changeCents: sale.changeCents,
+      cashRoundingCents: sale.cashRoundingCents,
+      voided: sale.voidedAt !== null,
+    };
+    return { data, text: renderTicketText(data) };
   }
 
   /** Today's sales, newest first (the void screen). */

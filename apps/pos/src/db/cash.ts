@@ -171,6 +171,13 @@ export function getExpectedCash(db: DbLike, sessionId: string): number {
 
 export type CashSessionRow = typeof cashSessions.$inferSelect;
 
+export function findSessionById(
+  db: DbLike,
+  id: string,
+): CashSessionRow | undefined {
+  return db.select().from(cashSessions).where(eq(cashSessions.id, id)).get();
+}
+
 /** The drawer has at most one open session (shift) at a time. */
 export function getOpenSession(db: DbLike): CashSessionRow | undefined {
   return db

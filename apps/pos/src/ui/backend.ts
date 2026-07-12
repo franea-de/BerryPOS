@@ -75,6 +75,14 @@ export interface PosBackend {
     voidedBy: string;
     reason?: string;
   }): Promise<{ alreadyVoided: boolean }>;
+  /** Print (if a printer is configured) and return the text preview. */
+  printReceipt(saleId: string): Promise<PrintResult>;
+}
+
+export interface PrintResult {
+  printed: boolean;
+  preview: string;
+  printError?: string;
 }
 
 // Same-origin when the register server itself serves the UI; absolute when
@@ -134,6 +142,9 @@ export class HttpBackend implements PosBackend {
   }
   voidSale(input: { saleId: string; voidedBy: string; reason?: string }) {
     return this.call<{ alreadyVoided: boolean }>("POST", "/sales/void", input);
+  }
+  printReceipt(saleId: string) {
+    return this.call<PrintResult>("POST", "/print/receipt", { saleId });
   }
 }
 
@@ -253,6 +264,14 @@ export class MemoryBackend implements PosBackend {
 
   async dailySummary(): Promise<{ cashiers: CashierDaySummary[]; dayIso: string }> {
     return { cashiers: this.day, dayIso: new Date().toISOString() };
+  }
+
+  async printReceipt(): Promise<PrintResult> {
+    return {
+      printed: false,
+      preview:
+        "La vista previa del ticket requiere el servidor de caja\n(modo demo: nada se guarda ni se imprime)",
+    };
   }
 
   async scan(code: string): Promise<ScanResult> {

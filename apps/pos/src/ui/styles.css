@@ -299,6 +299,20 @@ body {
 .void-btn:hover { background: #4a2530; }
 .cart-line.voided { opacity: 0.5; }
 
+.receipt-actions { display: flex; gap: 8px; margin-top: 8px; }
+.print-btn {
+  padding: 9px 16px; font-size: 14px; border: 1px solid var(--accent-2);
+  border-radius: var(--radius); background: transparent; color: var(--accent-2);
+  cursor: pointer; min-height: 44px;
+}
+.print-btn:hover { background: #1d3328; }
+.ticket-pre {
+  font-family: "Consolas", "Courier New", monospace; font-size: 12px;
+  line-height: 1.35; background: #fff; color: #111;
+  padding: 14px; border-radius: 6px; overflow-x: auto;
+  max-height: 55vh; overflow-y: auto; white-space: pre;
+}
+
 /* Tablet / portrait touch monitors: stack the two panels. */
 @media (max-width: 900px) {
   .pos-main { grid-template-columns: 1fr; overflow-y: auto; }
