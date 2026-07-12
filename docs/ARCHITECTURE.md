@@ -29,7 +29,7 @@
 │  ├─ Módulo ai  — gateway a Claude API (ver §5)          │
 │  ├─ Facturación electrónica: adaptador por país         │
 │  └─ Billing de suscripciones y licencias por caja       │
-│  apps/admin — Next.js: reportes, catálogo, multi-sucursal│
+│  apps/admin — React SPA: reportes, catálogo, multi-sucursal│
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -68,7 +68,7 @@ Gateway único a la Claude API; ninguna app llama al proveedor directamente. Reg
 |---|---|
 | POS | Tauri 2, React 19, Vite, SQLite (WAL) + Drizzle |
 | API | NestJS + Fastify, PostgreSQL 16 + Drizzle, Redis (colas/cache) |
-| Panel | Next.js 15 |
+| Panel | React 19 + Vite (SPA estática contra la API; mismo stack que el POS) |
 | Compartido | TypeScript estricto, Zod en fronteras, Vitest, Playwright |
 | IA | Claude API (módulo gateway `ai`) |
 | Infra | Docker Compose (dev), CI: typecheck + tests en cada PR |

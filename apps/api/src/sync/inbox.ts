@@ -1,10 +1,10 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { computeSaleTotals } from "@berrypos/domain";
 import {
   SyncPushRequestSchema,
   type SyncPushResponse,
 } from "@berrypos/sync-contracts";
-import { inboxEvents } from "../db/schema.js";
+import { cloudSales, inboxEvents } from "../db/schema.js";
 import type { ApiDb } from "../db/client.js";
 
 export interface DeviceIdentity {
@@ -79,6 +79,29 @@ export class SyncInbox {
 
         if (inserted.length > 0) {
           accepted.push(event.eventId);
+          // Keep the reporting projection in the same transaction: the
+          // panel is always consistent with what the inbox accepted.
+          if (event.type === "sale_completed") {
+            await tx
+              .insert(cloudSales)
+              .values({
+                saleId: event.saleId,
+                tenantId: event.tenantId,
+                storeId: event.storeId,
+                deviceId: event.deviceId,
+                totalCents: event.reportedTotalCents,
+                occurredAt: event.occurredAt,
+                paymentMethods: [
+                  ...new Set(event.payments.map((p) => p.method)),
+                ],
+              })
+              .onConflictDoNothing();
+          } else if (event.type === "sale_voided") {
+            await tx
+              .update(cloudSales)
+              .set({ voided: true })
+              .where(eq(cloudSales.saleId, event.saleId));
+          }
         } else {
           duplicates.push(event.eventId);
         }

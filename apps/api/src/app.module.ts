@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 import { createDb, type ApiDb } from "./db/client.js";
+import { CloudReports } from "./reports/reports.js";
+import { REPORTS, ReportsController } from "./reports/reports.controller.js";
 import { SyncInbox } from "./sync/inbox.js";
 import { DB, INBOX, SyncController } from "./sync/sync.controller.js";
 
@@ -9,12 +11,17 @@ import { DB, INBOX, SyncController } from "./sync/sync.controller.js";
  * which keeps the esbuild-based toolchain (vitest, vite-node) happy.
  */
 @Module({
-  controllers: [SyncController],
+  controllers: [SyncController, ReportsController],
   providers: [
     { provide: DB, useFactory: () => createDb().db },
     {
       provide: INBOX,
       useFactory: (db: ApiDb) => new SyncInbox(db),
+      inject: [DB],
+    },
+    {
+      provide: REPORTS,
+      useFactory: (db: ApiDb) => new CloudReports(db),
       inject: [DB],
     },
   ],

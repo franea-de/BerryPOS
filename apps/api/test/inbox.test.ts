@@ -6,7 +6,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { SYNC_SCHEMA_VERSION } from "@berrypos/sync-contracts";
 import { createDb, type ApiDb } from "../src/db/client.js";
 import * as schema from "../src/db/schema.js";
-import { devices, inboxEvents, stores, tenants } from "../src/db/schema.js";
+import {
+  cloudSales,
+  devices,
+  inboxEvents,
+  stores,
+  tenants,
+} from "../src/db/schema.js";
+import { CloudReports } from "../src/reports/reports.js";
 import { SyncInbox } from "../src/sync/inbox.js";
 
 // Tests run in their own database so they never clobber dev data.
@@ -79,13 +86,14 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  await adminDb.delete(cloudSales);
   await adminDb.delete(inboxEvents);
   await adminDb.delete(devices);
   await adminDb.delete(stores);
   await adminDb.delete(tenants);
   await adminDb.insert(tenants).values([
-    { id: "t-a", name: "Tenant A" },
-    { id: "t-b", name: "Tenant B" },
+    { id: "t-a", name: "Tenant A", adminToken: "token-a" },
+    { id: "t-b", name: "Tenant B", adminToken: "token-b" },
   ]);
   await adminDb.insert(stores).values([
     { tenantId: "t-a", id: "s-1", name: "Tienda A1" },
@@ -148,6 +156,64 @@ describe("SyncInbox.push", () => {
     await expect(
       inbox.push(IDENTITY, { events: [{ nonsense: true }] }),
     ).rejects.toThrow();
+  });
+
+  it("projects sales into cloud_sales and voids flip the flag", async () => {
+    const now = new Date().toISOString();
+    await inbox.push(IDENTITY, {
+      events: [{ ...saleEvent(E1, 0), occurredAt: now }],
+    });
+
+    const reports = new CloudReports(app.db);
+    const summary = await reports.summary("t-a");
+    expect(summary.salesCount).toBe(1);
+    expect(summary.totalCents).toBe(850);
+    expect(summary.stores[0]).toMatchObject({ storeId: "s-1", totalCents: 850 });
+
+    // Void arrives later: the sale drops out of the totals but stays listed.
+    await inbox.push(IDENTITY, {
+      events: [
+        {
+          ...envelope(E2, 1),
+          type: "sale_voided" as const,
+          saleId: "0d6a2cbe-9f7d-4a1a-8a44-000000000001",
+          voidedBy: "admin",
+        },
+      ],
+    });
+    const after = await reports.summary("t-a");
+    expect(after.salesCount).toBe(0);
+    const recent = await reports.recent("t-a");
+    expect(recent[0]?.voided).toBe(true);
+
+    // The other tenant sees nothing of this.
+    expect((await reports.summary("t-b")).salesCount).toBe(0);
+  });
+
+  it("backfill rebuilds the projection from raw inbox rows", async () => {
+    const now = new Date().toISOString();
+    // Simulate an event that predates the projection (raw insert as admin).
+    const event = { ...saleEvent(E3, 5), occurredAt: now };
+    await adminDb.insert(inboxEvents).values({
+      eventId: E3,
+      tenantId: "t-a",
+      storeId: "s-1",
+      deviceId: "caja-1",
+      deviceSeq: 5,
+      type: "sale_completed",
+      payload: event,
+      occurredAt: now,
+    });
+
+    const reports = new CloudReports(app.db);
+    await reports.backfill();
+    await reports.backfill(); // idempotent
+
+    const summary = await reports.summary("t-a");
+    expect(summary.salesCount).toBe(1);
+    expect(summary.totalCents).toBe(850);
+    const daily = await reports.daily("t-a");
+    expect(daily[0]?.totalCents).toBe(850);
   });
 
   it("row-level security: a tenant can never read another tenant's events", async () => {

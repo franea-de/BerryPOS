@@ -1,14 +1,25 @@
+import { and, eq, isNull } from "drizzle-orm";
 import { devices, stores, tenants } from "./db/schema.js";
 import type { ApiDb } from "./db/client.js";
 
 /** Dev convenience: a tenant/store/device so the register can sync locally. */
 export async function ensureDevTenant(db: ApiDb): Promise<void> {
+  // Older dev tenants predate the admin token: top it up.
+  await db
+    .update(tenants)
+    .set({ adminToken: process.env.BERRYPOS_DEV_ADMIN_TOKEN ?? "dev-admin" })
+    .where(and(eq(tenants.id, "dev"), isNull(tenants.adminToken)));
+
   const existing = await db.select().from(devices);
   if (existing.length > 0) return;
 
   await db
     .insert(tenants)
-    .values({ id: "dev", name: "Tenant de desarrollo" })
+    .values({
+      id: "dev",
+      name: "Tenant de desarrollo",
+      adminToken: process.env.BERRYPOS_DEV_ADMIN_TOKEN ?? "dev-admin",
+    })
     .onConflictDoNothing();
   await db
     .insert(stores)

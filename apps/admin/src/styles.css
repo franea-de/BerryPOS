@@ -1,0 +1,54 @@
+* { box-sizing: border-box; margin: 0; }
+
+:root {
+  --bg: #14161d; --panel: #1e2230; --panel-2: #262b3d;
+  --text: #e8eaf2; --muted: #8b91a7; --accent: #e0447c; --accent-2: #35c47c;
+}
+
+html, body, #root { height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, sans-serif; font-size: 15px; }
+
+.gate {
+  height: 100%; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 16px; padding: 20px;
+}
+.gate h1 { color: var(--accent); }
+.gate p { color: var(--muted); }
+.gate-row { display: flex; gap: 8px; }
+.gate-row input {
+  padding: 13px; font-size: 16px; width: 280px;
+  background: var(--panel); color: var(--text);
+  border: 1px solid #3a4157; border-radius: 10px;
+}
+.gate-row button {
+  padding: 0 22px; border: none; border-radius: 10px;
+  background: var(--accent-2); color: #08150e; font-weight: 700; cursor: pointer;
+}
+.error { color: #ffb3c4; }
+
+.panel { max-width: 1100px; margin: 0 auto; padding: 18px; display: flex; flex-direction: column; gap: 16px; }
+.panel header { display: flex; justify-content: space-between; align-items: center; }
+.panel header h1 { font-size: 20px; color: var(--accent); }
+.panel header button {
+  padding: 10px 18px; border: 1px solid #3a4157; border-radius: 10px;
+  background: transparent; color: var(--muted); cursor: pointer; min-height: 44px;
+}
+
+.cards { display: flex; gap: 12px; flex-wrap: wrap; }
+.card {
+  background: var(--panel); border-radius: 12px; padding: 16px 20px;
+  display: flex; flex-direction: column; gap: 4px; min-width: 180px;
+}
+.card.big { border: 1px solid var(--accent-2); }
+.card-label { color: var(--muted); font-size: 13px; }
+.card-value { font-size: 26px; font-weight: 800; }
+.card-sub { color: var(--muted); font-size: 13px; }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1.2fr; gap: 16px; }
+@media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+.box { background: var(--panel); border-radius: 12px; padding: 16px; }
+.box h2 { font-size: 16px; margin-bottom: 10px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #3a4157; font-size: 14px; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; }
+tr.voided td { opacity: 0.5; text-decoration: line-through; }

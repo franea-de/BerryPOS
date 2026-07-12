@@ -18,7 +18,7 @@ packages/domain    Lógica de negocio PURA (dinero, impuestos, ventas, promos, l
 packages/*         Código compartido (contratos de sync, esquemas, config).
 apps/pos           POS de caja: Tauri 2 + React + Vite + SQLite (Drizzle).
 apps/api           API nube: NestJS + Fastify + PostgreSQL (Drizzle).
-apps/admin         Panel web: Next.js.
+apps/admin         Panel web: React 19 + Vite (SPA contra la API).
 ```
 
 ## Reglas de ingeniería (NO negociables)
