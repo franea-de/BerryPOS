@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import http from "node:http";
+import https from "node:https";
+import os from "node:os";
 import { extname, join, normalize } from "node:path";
 import { openPosDb } from "../db/connect.js";
 import type { DeviceContext } from "../db/context.js";
@@ -10,6 +12,7 @@ import { PosService } from "../service.js";
 import { renderTicketEscPos } from "../ticket.js";
 import { printRaw } from "./printer.js";
 import { startSyncLoop, type SyncStatus } from "./sync-loop.js";
+import { ensureTlsCert } from "./tls.js";
 
 /**
  * Local register server: the ONLY process that touches the store SQLite.
@@ -100,11 +103,26 @@ async function serveStatic(
   }
 }
 
-const server = http.createServer(async (req, res) => {
+/**
+ * Sessions for NON-localhost clients (the mobile page on the store LAN):
+ * a PIN login issues a token, and every other request from the network must
+ * carry it. Requests from this machine (desktop app) stay token-free.
+ */
+const sessionTokens = new Set<string>();
+
+function isLoopback(req: http.IncomingMessage): boolean {
+  const addr = req.socket.remoteAddress ?? "";
+  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+}
+
+const requestHandler = async (
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+) => {
   // The UI may also run on another local origin (vite 1420 / tauri://).
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Session-Token");
   if (req.method === "OPTIONS") {
     res.writeHead(204).end();
     return;
@@ -112,13 +130,30 @@ const server = http.createServer(async (req, res) => {
 
   const pathname = req.url?.split("?")[0] ?? "/";
   const route = `${req.method} ${pathname}`;
+
+  // LAN guard: anything that writes requires a session token from /login.
+  if (!isLoopback(req) && req.method === "POST" && pathname !== "/login") {
+    const token = req.headers["x-session-token"];
+    if (typeof token !== "string" || !sessionTokens.has(token)) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Inicia sesión con tu PIN primero" }));
+      return;
+    }
+  }
+
   try {
-    const result = await handle(route, req);
+    let result = await handle(route, req);
     if (result === undefined) {
       if (req.method === "GET" && (await serveStatic(pathname, res))) return;
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: `unknown route ${route}` }));
       return;
+    }
+    if (route === "POST /login") {
+      // Attach a LAN session token to successful logins.
+      const sessionToken = crypto.randomUUID();
+      sessionTokens.add(sessionToken);
+      result = { ...(result as object), sessionToken };
     }
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(result));
@@ -128,7 +163,9 @@ const server = http.createServer(async (req, res) => {
       JSON.stringify({ error: e instanceof Error ? e.message : String(e) }),
     );
   }
-});
+};
+
+const server = http.createServer(requestHandler);
 
 async function handle(
   route: string,
@@ -218,4 +255,15 @@ async function handle(
 
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`BerryPOS server: http://127.0.0.1:${PORT} (db: ${DB_FILE})`);
+});
+
+// HTTPS on the LAN for the mobile page (phone cameras need a secure context).
+const TLS_PORT = Number(process.env.BERRYPOS_TLS_PORT ?? 1422);
+const tls = await ensureTlsCert(join(ROOT, "data", "tls"));
+https.createServer(tls, requestHandler).listen(TLS_PORT, "0.0.0.0", () => {
+  const urls = Object.values(os.networkInterfaces())
+    .flatMap((list) => list ?? [])
+    .filter((i) => i.family === "IPv4" && !i.internal)
+    .map((i) => `https://${i.address}:${TLS_PORT}/movil`);
+  console.log(`BerryPOS móvil (LAN): ${urls.join(" | ") || "sin red detectada"}`);
 });

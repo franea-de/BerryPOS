@@ -85,22 +85,28 @@ export interface PrintResult {
   printError?: string;
 }
 
-// Same-origin when the register server itself serves the UI; absolute when
-// running from the vite dev server or the Tauri asset protocol.
+// Same-origin when the register server itself serves the UI (HTTP 1421 or
+// HTTPS 1422 on the LAN); absolute when running from the vite dev server or
+// the Tauri asset protocol.
 const SERVER_URL =
-  typeof window !== "undefined" && window.location.port === "1421"
+  typeof window !== "undefined" &&
+  (window.location.port === "1421" || window.location.port === "1422")
     ? ""
     : "http://127.0.0.1:1421";
 
 export class HttpBackend implements PosBackend {
   readonly mode = "server";
+  /** LAN session token issued at login (required off-machine). */
+  private sessionToken: string | null = null;
 
   private async call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+    const headers: Record<string, string> = {};
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    if (this.sessionToken) headers["X-Session-Token"] = this.sessionToken;
     const res = await fetch(`${SERVER_URL}${path}`, {
       method,
-      ...(body !== undefined
-        ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-        : {}),
+      headers,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
     const json = (await res.json()) as T & { error?: string };
     if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
@@ -122,8 +128,14 @@ export class HttpBackend implements PosBackend {
   receiveStock(input: ReceiveStockInput) {
     return this.call<{ stockMilli: number }>("POST", "/receive", input);
   }
-  login(userId: string, pin: string) {
-    return this.call<UserSummary>("POST", "/login", { userId, pin });
+  async login(userId: string, pin: string) {
+    const user = await this.call<UserSummary & { sessionToken?: string }>(
+      "POST",
+      "/login",
+      { userId, pin },
+    );
+    this.sessionToken = user.sessionToken ?? null;
+    return user;
   }
   openShift(input: { sessionId: string; cashierId: string; openingFloatCents: number }) {
     return this.call<SessionInfo>("POST", "/session/open", input);
