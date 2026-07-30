@@ -66,6 +66,12 @@ importers:
       rxjs:
         specifier: ^7.8.2
         version: 7.8.2
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vite-node:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@24.13.3)(tsx@4.23.0)
       zod:
         specifier: ^4.0.5
         version: 4.4.3
@@ -79,12 +85,6 @@ importers:
       drizzle-kit:
         specifier: ^0.31.4
         version: 0.31.10
-      typescript:
-        specifier: ^5.8.3
-        version: 5.9.3
-      vite-node:
-        specifier: ^3.2.4
-        version: 3.2.4(@types/node@24.13.3)(tsx@4.23.0)
       vitest:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@24.13.3)(tsx@4.23.0)
