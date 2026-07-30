@@ -1,5 +1,9 @@
-import type { SyncPushResponse } from "@berrypos/sync-contracts";
+import {
+  SyncPullResponseSchema,
+  type SyncPushResponse,
+} from "@berrypos/sync-contracts";
 import { applyPushResponse, buildPushRequest } from "../db/outbox.js";
+import { applyCatalogSnapshot, getCatalogRevision } from "../db/catalog.js";
 import type { PosDb } from "../db/context.js";
 
 /**
@@ -58,9 +62,43 @@ export async function pushOnce(
   return cleared;
 }
 
+export async function pullOnce(
+  db: PosDb,
+  cloudUrl: string,
+  apiKey: string,
+  tenantId: string,
+  storeId: string,
+): Promise<boolean> {
+  const sinceRevision = getCatalogRevision(db);
+  const res = await fetch(`${cloudUrl}/sync/pull`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": apiKey },
+    body: JSON.stringify({ tenantId, storeId, sinceRevision }),
+  });
+  if (!res.ok) {
+    throw new Error(`cloud pull respondió HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  const parsed = SyncPullResponseSchema.parse(data);
+  if (parsed.status === "snapshot") {
+    const { applied, revision } = applyCatalogSnapshot(db, parsed.snapshot);
+    if (applied) {
+      console.log(`sync: catálogo actualizado localmente a revisión ${revision}`);
+      return true;
+    }
+  }
+  return false;
+}
+
 export function startSyncLoop(
   db: PosDb,
-  opts: { cloudUrl: string; apiKey: string; intervalMs?: number },
+  opts: {
+    cloudUrl: string;
+    apiKey: string;
+    tenantId: string;
+    storeId: string;
+    intervalMs?: number;
+  },
 ): SyncStatus {
   const status: SyncStatus = {
     enabled: true,
@@ -78,6 +116,7 @@ export function startSyncLoop(
     try {
       const cleared = await pushOnce(db, send, status);
       if (cleared > 0) console.log(`sync: ${cleared} eventos confirmados por la nube`);
+      await pullOnce(db, opts.cloudUrl, opts.apiKey, opts.tenantId, opts.storeId);
     } catch (e) {
       status.lastError = e instanceof Error ? e.message : String(e);
     } finally {

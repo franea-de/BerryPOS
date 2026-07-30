@@ -306,6 +306,12 @@ body {
   cursor: pointer; min-height: 44px;
 }
 .print-btn:hover { background: #1d3328; }
+.edit-btn {
+  padding: 9px 16px; font-size: 14px; border: 1px solid var(--accent);
+  border-radius: var(--radius); background: transparent; color: var(--accent);
+  cursor: pointer; min-height: 44px;
+}
+.edit-btn:hover { background: #3d1b28; }
 .ticket-pre {
   font-family: "Consolas", "Courier New", monospace; font-size: 12px;
   line-height: 1.35; background: #fff; color: #111;
@@ -394,8 +400,80 @@ body {
 .m-actions .ghost { background: transparent; border: 1px solid #3a4157; color: var(--muted); }
 .m-actions .primary { background: var(--accent-2); color: #08150e; font-weight: 700; }
 
+.m-modes {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid #3a4157;
+}
+.m-modes button {
+  flex: 1;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid #3a4157;
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.m-modes button.active {
+  background: var(--accent-2);
+  color: #08150e;
+  border-color: var(--accent-2);
+}
+
+
 /* Tablet / portrait touch monitors: stack the two panels. */
 @media (max-width: 900px) {
   .pos-main { grid-template-columns: 1fr; overflow-y: auto; }
   .cart { max-height: 40vh; }
+}
+
+/* Variable weight item cart edits */
+.weighable-clickable {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  border-radius: 6px;
+}
+.weighable-clickable:hover {
+  background-color: var(--panel-2);
+}
+.weighable-clickable .cart-line-name {
+  border-bottom: 1px dotted var(--accent-2);
+  display: inline-block;
+}
+
+/* Edit Weight Action Button in Cart */
+.cart-line-actions button.edit-weight-btn {
+  background: #2a2f42;
+  color: #35c47c;
+  border: 1px solid #3a4157;
+  cursor: pointer;
+  border-radius: 8px;
+  font-size: 14px;
+  min-height: 36px;
+  width: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+.cart-line-actions button.edit-weight-btn:hover {
+  background: #1c3c2b;
+  color: #35c47c;
+  border-color: var(--accent-2);
+}
+
+/* Monospace Receipt Pre-formatting Styles */
+.ticket-paper-roll pre {
+  font-family: "Consolas", "Courier New", monospace !important;
+  font-size: 11px !important;
+  line-height: 1.35 !important;
+  white-space: pre !important;
+  word-spacing: normal !important;
+  letter-spacing: 0px !important;
+  overflow-x: auto;
 }

@@ -41,6 +41,7 @@ import {
   type RecentSale,
 } from "./db/sales.js";
 import { renderTicketText, type TicketData } from "./ticket.js";
+import { sales } from "./db/schema.js";
 import {
   getDailyCashierSummary,
   getSessionSalesSummary,
@@ -252,7 +253,16 @@ export class PosService {
   }
 
   /** Freeze the cart, settle the tender and persist the sale atomically. */
-  checkout(cart: Cart, payments: PaymentInput[]): CheckoutResult {
+  checkout(
+    cart: Cart,
+    payments: PaymentInput[],
+    billing?: {
+      documentType: "boleta" | "factura";
+      customerRuc?: string;
+      customerName?: string;
+      paymentReference?: string;
+    },
+  ): CheckoutResult {
     const session = this.requireOpenSession();
     this.assertStockAvailable(cart);
     const promotions = getPromotions(this.db);
@@ -264,6 +274,14 @@ export class PosService {
       payments,
       cashRounding: SEED_CASH_ROUNDING,
     });
+    
+    // Inject billing options into input to save inside DB
+    const billingOptions = billing || { documentType: "boleta" };
+    (params as any).documentType = billingOptions.documentType;
+    (params as any).customerRuc = billingOptions.customerRuc;
+    (params as any).customerName = billingOptions.customerName;
+    (params as any).paymentReference = billingOptions.paymentReference;
+
     const r = recordSale(this.db, this.ctx, params);
     return {
       saleId: r.saleId,
@@ -291,12 +309,44 @@ export class PosService {
 
     const session = findSessionById(this.db, sale.cashSessionId);
     const cashier = session ? findUserById(this.db, session.cashierId) : undefined;
-    const input = sale.input as { sale: SaleInput };
+    const input = sale.input as {
+      sale: SaleInput;
+      documentType?: "boleta" | "factura";
+      customerRuc?: string;
+      customerName?: string;
+      paymentReference?: string;
+    };
     const totals = computeSaleTotals(input.sale);
+
+    const docType = input.documentType ?? "boleta";
+
+    // Calculate correlativo by scanning the list of sales of the same type
+    const allSales = this.db.select({ id: sales.id, createdAt: sales.createdAt, input: sales.input }).from(sales).all();
+    allSales.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+
+    let sequence = 0;
+    for (const s of allSales) {
+      try {
+        const sInput = JSON.parse(s.input);
+        const sDocType = sInput.documentType ?? "boleta";
+        if (sDocType === docType) {
+          sequence++;
+        }
+        if (s.id === saleId) {
+          break;
+        }
+      } catch {}
+    }
+    if (sequence === 0) sequence = 1;
+
+    const prefix = docType === "factura" ? "F001" : "B001";
+    const documentNumber = `${prefix}-${String(sequence).padStart(8, "0")}`;
 
     const data: TicketData = {
       storeName: this.storeName,
-      storeLine2: "Documento interno de venta",
+      storeAddress: "Av. Alfredo Benavides 1930",
+      storeCity: "Lima, Peru",
+      storeRuc: "20601234567",
       deviceId: this.ctx.deviceId,
       cashierName: cashier?.name ?? session?.cashierId ?? "-",
       saleId: sale.id,
@@ -324,6 +374,11 @@ export class PosService {
       changeCents: sale.changeCents,
       cashRoundingCents: sale.cashRoundingCents,
       voided: sale.voidedAt !== null,
+      documentType: docType,
+      documentNumber,
+      customerRuc: input.customerRuc,
+      customerName: input.customerName,
+      paymentReference: input.paymentReference,
     };
     return { data, text: renderTicketText(data) };
   }

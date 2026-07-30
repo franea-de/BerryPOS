@@ -57,4 +57,31 @@ export class SyncController {
       throw e;
     }
   }
+
+  @Post("pull")
+  async pull(
+    @Headers("x-api-key") apiKey: string | undefined,
+    @Body() body: unknown,
+  ) {
+    if (!apiKey) throw new UnauthorizedException("x-api-key requerido");
+    const [device] = await this.db
+      .select()
+      .from(devices)
+      .where(eq(devices.apiKey, apiKey));
+    if (!device) throw new UnauthorizedException("api key inválida");
+
+    try {
+      return await this.inbox.pull(
+        {
+          tenantId: device.tenantId,
+        },
+        body,
+      );
+    } catch (e) {
+      if (e instanceof ZodError) {
+        throw new BadRequestException(`payload inválido: ${e.message}`);
+      }
+      throw e;
+    }
+  }
 }

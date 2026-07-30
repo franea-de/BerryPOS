@@ -4,6 +4,8 @@ import { CloudReports } from "./reports/reports.js";
 import { REPORTS, ReportsController } from "./reports/reports.controller.js";
 import { SyncInbox } from "./sync/inbox.js";
 import { DB, INBOX, SyncController } from "./sync/sync.controller.js";
+import { CatalogController } from "./catalog/catalog.controller.js";
+import { AiController } from "./ai/ai.controller.js";
 
 /**
  * Modular monolith (CLAUDE.md): one Nest app, clean module borders.
@@ -11,7 +13,7 @@ import { DB, INBOX, SyncController } from "./sync/sync.controller.js";
  * which keeps the esbuild-based toolchain (vitest, vite-node) happy.
  */
 @Module({
-  controllers: [SyncController, ReportsController],
+  controllers: [SyncController, ReportsController, CatalogController, AiController],
   providers: [
     { provide: DB, useFactory: () => createDb().db },
     {

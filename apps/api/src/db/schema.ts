@@ -1,5 +1,6 @@
 import {
   boolean,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -89,3 +90,87 @@ export const inboxEvents = pgTable("inbox_events", {
     .notNull()
     .defaultNow(),
 });
+
+// ---------- Master data (owned by the cloud, RLS enabled) ----------
+
+export const cloudCategories = pgTable(
+  "cloud_categories",
+  {
+    tenantId: text("tenant_id").notNull(),
+    id: text("id").notNull(),
+    name: text("name").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.id] })],
+);
+
+export const cloudProducts = pgTable(
+  "cloud_products",
+  {
+    tenantId: text("tenant_id").notNull(),
+    id: text("id").notNull(),
+    name: text("name").notNull(),
+    categoryId: text("category_id"),
+    scaleItemCode: text("scale_item_code"),
+    isWeighable: boolean("is_weighable").notNull(),
+    unitPriceCents: integer("unit_price_cents").notNull(),
+    taxCodes: jsonb("tax_codes").$type<string[]>().notNull(),
+    active: boolean("active").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.id] }),
+    index("idx_cloud_products_scale_code").on(t.scaleItemCode),
+  ],
+);
+
+export const cloudProductBarcodes = pgTable(
+  "cloud_product_barcodes",
+  {
+    tenantId: text("tenant_id").notNull(),
+    barcode: text("barcode").notNull(),
+    productId: text("product_id").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.barcode] })],
+);
+
+export const cloudTaxes = pgTable(
+  "cloud_taxes",
+  {
+    tenantId: text("tenant_id").notNull(),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    rateBp: integer("rate_bp").notNull(),
+    includedInPrice: boolean("included_in_price").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.code] })],
+);
+
+export const cloudPromotions = pgTable(
+  "cloud_promotions",
+  {
+    tenantId: text("tenant_id").notNull(),
+    id: text("id").notNull(),
+    data: jsonb("data").notNull(), // contains full PromotionInput
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.id] })],
+);
+
+export const cloudPosUsers = pgTable(
+  "cloud_pos_users",
+  {
+    tenantId: text("tenant_id").notNull(),
+    id: text("id").notNull(),
+    name: text("name").notNull(),
+    role: text("role").notNull(),
+    pinHash: text("pin_hash").notNull(),
+    active: boolean("active").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.id] })],
+);
+
+export const cloudCatalogRevisions = pgTable(
+  "cloud_catalog_revisions",
+  {
+    tenantId: text("tenant_id").primaryKey(),
+    revision: integer("revision").notNull().default(0),
+  }
+);

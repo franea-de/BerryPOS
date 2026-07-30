@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Receipt ticket builder: plain text (preview + tests) and ESC/POS bytes
  * (any 80mm thermal printer). Pure module — no I/O, no node deps.
  *
@@ -17,7 +17,9 @@ export interface TicketLine {
 
 export interface TicketData {
   storeName: string;
-  storeLine2?: string;
+  storeAddress?: string;
+  storeCity?: string;
+  storeRuc?: string;
   deviceId: string;
   cashierName: string;
   saleId: string;
@@ -31,6 +33,11 @@ export interface TicketData {
   changeCents: number;
   cashRoundingCents: number;
   voided: boolean;
+  documentType: "boleta" | "factura";
+  documentNumber: string;
+  customerRuc?: string;
+  customerName?: string;
+  paymentReference?: string;
 }
 
 const METHOD_LABEL: Record<string, string> = {
@@ -75,12 +82,23 @@ export function renderTicketText(data: TicketData, width = 42): string {
   const out: string[] = [];
 
   out.push(center(ascii(data.storeName.toUpperCase()), width));
-  if (data.storeLine2) out.push(center(ascii(data.storeLine2), width));
+  if (data.storeAddress) out.push(center(ascii(data.storeAddress), width));
+  if (data.storeCity) out.push(center(ascii(data.storeCity), width));
+  if (data.storeRuc) out.push(center(`R.U.C. Nro ${data.storeRuc}`, width));
   out.push(divider);
 
+  const docTitle = data.documentType === "factura" ? "FACTURA ELECTRONICA" : "BOLETA DE VENTA ELECTRONICA";
+  out.push(center(docTitle, width));
+  out.push(center(`Nro: ${data.documentNumber}`, width));
+  out.push(divider);
+
+  if (data.documentType === "factura" && data.customerRuc) {
+    out.push(`Cliente: ${ascii(data.customerName ?? "-")}`);
+    out.push(`R.U.C. : ${data.customerRuc}`);
+    out.push(divider);
+  }
+
   const date = new Date(data.dateIso);
-  // 24h time: the localized "a. m." carries non-ASCII spaces that thermal
-  // fonts render as garbage.
   out.push(
     row(
       date.toLocaleDateString("es-PE") + " " +
@@ -94,7 +112,7 @@ export function renderTicketText(data: TicketData, width = 42): string {
     ),
   );
   out.push(`Cajero: ${ascii(data.cashierName)}`);
-  out.push(`Ticket: ${data.saleId.slice(0, 8)}`);
+  out.push(`Transac: ${data.saleId.slice(0, 8).toUpperCase()}`);
   if (data.voided) out.push(center("*** VENTA ANULADA ***", width));
   out.push(divider);
 
@@ -134,10 +152,27 @@ export function renderTicketText(data: TicketData, width = 42): string {
   if (data.changeCents > 0) {
     out.push(row("VUELTO", money(data.changeCents), width));
   }
+  if (data.paymentReference) {
+    out.push(row("Ref/Op:", ascii(data.paymentReference), width));
+  }
+  out.push(divider);
+
+  // Hash & QR text
+  const hash = data.saleId.slice(0, 8).toUpperCase() + "-" + data.saleId.slice(-8).toUpperCase();
+  out.push(center(`Representacion impresa de CPE`, width));
+  out.push(center(`Firma Hash: ${hash}`, width));
+
+  const rucReceptor = data.documentType === "factura" ? data.customerRuc : "";
+  const numCorrelativo = data.documentNumber.split("-")[1] ?? "00000000";
+  const qrData = `${data.storeRuc}|${data.documentType === "factura" ? "01" : "03"}|B001|${numCorrelativo}|${money(data.totalCents - (data.taxBreakdown[0]?.taxCents ?? 0))}|${money(data.totalCents)}|${date.toLocaleDateString("es-PE")}|${data.documentType === "factura" ? "6" : "1"}|${rucReceptor}|`;
+  out.push(center("Codigo QR SUNAT:", width));
+  out.push(center(qrData.slice(0, width), width));
+  if (qrData.length > width) {
+    out.push(center(qrData.slice(width), width));
+  }
+
   out.push(divider);
   out.push(center("Gracias por su compra!", width));
-  out.push(center("Documento interno de venta", width));
-  out.push(center("(no es comprobante SUNAT)", width));
   return out.join("\n");
 }
 

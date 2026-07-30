@@ -2,9 +2,21 @@ import { eq, sql } from "drizzle-orm";
 import { computeSaleTotals } from "@berrypos/domain";
 import {
   SyncPushRequestSchema,
+  SyncPullRequestSchema,
   type SyncPushResponse,
+  type SyncPullResponse,
 } from "@berrypos/sync-contracts";
-import { cloudSales, inboxEvents } from "../db/schema.js";
+import {
+  cloudSales,
+  inboxEvents,
+  cloudCategories,
+  cloudProducts,
+  cloudProductBarcodes,
+  cloudTaxes,
+  cloudPromotions,
+  cloudPosUsers,
+  cloudCatalogRevisions,
+} from "../db/schema.js";
 import type { ApiDb } from "../db/client.js";
 
 export interface DeviceIdentity {
@@ -101,6 +113,65 @@ export class SyncInbox {
               .update(cloudSales)
               .set({ voided: true })
               .where(eq(cloudSales.saleId, event.saleId));
+          } else if (event.type === "product_created") {
+            await tx
+              .insert(cloudProducts)
+              .values({
+                tenantId: event.tenantId,
+                id: event.product.id,
+                name: event.product.name,
+                categoryId: event.product.categoryId ?? null,
+                scaleItemCode: event.product.scaleItemCode ?? null,
+                isWeighable: event.product.isWeighable,
+                unitPriceCents: event.product.unitPriceCents,
+                taxCodes: event.product.taxCodes,
+                active: event.product.active,
+              })
+              .onConflictDoUpdate({
+                target: [cloudProducts.tenantId, cloudProducts.id],
+                set: {
+                  name: event.product.name,
+                  categoryId: event.product.categoryId ?? null,
+                  scaleItemCode: event.product.scaleItemCode ?? null,
+                  isWeighable: event.product.isWeighable,
+                  unitPriceCents: event.product.unitPriceCents,
+                  taxCodes: event.product.taxCodes,
+                  active: event.product.active,
+                },
+              });
+            for (const barcode of event.product.barcodes) {
+              await tx
+                .insert(cloudProductBarcodes)
+                .values({
+                  tenantId: event.tenantId,
+                  barcode,
+                  productId: event.product.id,
+                })
+                .onConflictDoNothing();
+            }
+            await tx
+              .insert(cloudCatalogRevisions)
+              .values({ tenantId: event.tenantId, revision: 1 })
+              .onConflictDoUpdate({
+                target: cloudCatalogRevisions.tenantId,
+                set: { revision: sql`${cloudCatalogRevisions.revision} + 1` },
+              });
+          } else if (event.type === "product_barcode_added") {
+            await tx
+              .insert(cloudProductBarcodes)
+              .values({
+                tenantId: event.tenantId,
+                barcode: event.barcode,
+                productId: event.productId,
+              })
+              .onConflictDoNothing();
+            await tx
+              .insert(cloudCatalogRevisions)
+              .values({ tenantId: event.tenantId, revision: 1 })
+              .onConflictDoUpdate({
+                target: cloudCatalogRevisions.tenantId,
+                set: { revision: sql`${cloudCatalogRevisions.revision} + 1` },
+              });
           }
         } else {
           duplicates.push(event.eventId);
@@ -109,5 +180,87 @@ export class SyncInbox {
     });
 
     return { accepted, duplicates, rejected };
+  }
+
+  async pull(identity: { tenantId: string }, body: unknown): Promise<SyncPullResponse> {
+    const req = SyncPullRequestSchema.parse(body);
+
+    if (req.tenantId !== identity.tenantId) {
+      throw new Error("tenantId in request does not match device identity");
+    }
+
+    const [revRow] = await this.db
+      .select()
+      .from(cloudCatalogRevisions)
+      .where(eq(cloudCatalogRevisions.tenantId, req.tenantId));
+    const currentRevision = revRow ? revRow.revision : 0;
+
+    if (req.sinceRevision >= currentRevision) {
+      return { status: "up_to_date" as const, revision: currentRevision };
+    }
+
+    // Compile a full CatalogSnapshot
+    const [productsList, barcodesList, categoriesList, taxesList, promotionsList, usersList] =
+      await Promise.all([
+        this.db.select().from(cloudProducts).where(eq(cloudProducts.tenantId, req.tenantId)),
+        this.db.select().from(cloudProductBarcodes).where(eq(cloudProductBarcodes.tenantId, req.tenantId)),
+        this.db.select().from(cloudCategories).where(eq(cloudCategories.tenantId, req.tenantId)),
+        this.db.select().from(cloudTaxes).where(eq(cloudTaxes.tenantId, req.tenantId)),
+        this.db.select().from(cloudPromotions).where(eq(cloudPromotions.tenantId, req.tenantId)),
+        this.db.select().from(cloudPosUsers).where(eq(cloudPosUsers.tenantId, req.tenantId)),
+      ]);
+
+    const barcodesMap = new Map<string, string[]>();
+    for (const b of barcodesList) {
+      const list = barcodesMap.get(b.productId) ?? [];
+      list.push(b.barcode);
+      barcodesMap.set(b.productId, list);
+    }
+
+    const products = productsList.map((p) => ({
+      id: p.id,
+      name: p.name,
+      categoryId: p.categoryId ?? undefined,
+      barcodes: barcodesMap.get(p.id) ?? [],
+      scaleItemCode: p.scaleItemCode ?? undefined,
+      isWeighable: p.isWeighable,
+      unitPriceCents: p.unitPriceCents,
+      taxCodes: p.taxCodes,
+      active: p.active,
+    }));
+
+    const categories = categoriesList.map((c) => ({
+      id: c.id,
+      name: c.name,
+    }));
+
+    const taxCatalog = taxesList.map((t) => ({
+      code: t.code,
+      name: t.name,
+      rateBp: t.rateBp,
+      includedInPrice: t.includedInPrice,
+    }));
+
+    const promotions = promotionsList.map((p) => p.data as any);
+
+    const users = usersList.map((u) => ({
+      id: u.id,
+      name: u.name,
+      role: u.role as "cashier" | "supervisor" | "admin",
+      pinHash: u.pinHash,
+      active: u.active,
+    }));
+
+    return {
+      status: "snapshot" as const,
+      snapshot: {
+        revision: currentRevision,
+        products,
+        categories,
+        taxCatalog,
+        promotions,
+        users,
+      },
+    };
   }
 }

@@ -28,6 +28,7 @@ export default function MobileApp() {
   const [error, setError] = useState<string | null>(null);
   const [hit, setHit] = useState<Hit | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [mode, setMode] = useState<"sale" | "inventory">("sale");
 
   useEffect(() => {
     backend
@@ -47,6 +48,16 @@ export default function MobileApp() {
 
   async function onCode(code: string) {
     try {
+      if (mode === "sale") {
+        await backend.sendRemoteScan(code);
+        if (navigator.vibrate) navigator.vibrate(80);
+        const localProd = boot.products.find(
+          (p) => p.barcodes.includes(code) || p.scaleItemCode === code,
+        );
+        flash(`Enviado a caja: ${localProd ? localProd.name : code}`);
+        return;
+      }
+
       const result = await backend.scan(code);
       if (result.kind === "not_found") {
         setHit({ kind: "unknown", code });
@@ -115,6 +126,27 @@ export default function MobileApp() {
         <span>🍓 {user.name}</span>
         <button onClick={() => setUser(null)}>Salir</button>
       </header>
+
+      <div className="m-modes">
+        <button
+          className={mode === "sale" ? "active" : ""}
+          onClick={() => {
+            setMode("sale");
+            setHit(null);
+          }}
+        >
+          🛒 Modo Venta
+        </button>
+        <button
+          className={mode === "inventory" ? "active" : ""}
+          onClick={() => {
+            setMode("inventory");
+            setHit(null);
+          }}
+        >
+          📦 Modo Inventario
+        </button>
+      </div>
 
       <Scanner onCode={onCode} paused={hit !== null} />
 

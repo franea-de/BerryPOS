@@ -13,7 +13,9 @@ const CTX: DeviceContext = { tenantId: "t1", storeId: "s1", deviceId: "caja-1" }
 
 const SAMPLE: TicketData = {
   storeName: "Bodega Doña María",
-  storeLine2: "Av. Los Próceres 123",
+  storeAddress: "Av. Los Próceres 123",
+  storeCity: "Lima, Perú",
+  storeRuc: "20601234567",
   deviceId: "caja-1",
   cashierName: "Cajero 1",
   saleId: "0d6a2cbe-9f7d-4a1a-8a44-000000000001",
@@ -30,6 +32,8 @@ const SAMPLE: TicketData = {
   changeCents: 460,
   cashRoundingCents: 4,
   voided: false,
+  documentType: "boleta",
+  documentNumber: "B001-00000001",
 };
 
 describe("renderTicketText", () => {
@@ -48,7 +52,7 @@ describe("renderTicketText", () => {
     expect(text).toContain("EFECTIVO");
     expect(text).toContain("VUELTO");
     expect(text).toContain("4.60");
-    expect(text).toContain("no es comprobante SUNAT");
+    expect(text).toContain("Representacion impresa");
     expect(text).not.toContain("ANULADA");
   });
 

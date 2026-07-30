@@ -23,8 +23,9 @@ async function bootstrap() {
   await ensureDevTenant(app.get<ApiDb>(DB));
   // Rebuild the reporting projection from the inbox (idempotent).
   await app.get<CloudReports>(REPORTS).backfill();
-  await app.listen(PORT, "127.0.0.1");
-  console.log(`BerryPOS API: http://127.0.0.1:${PORT}`);
+  const host = process.env.HOST ?? "0.0.0.0";
+  await app.listen(PORT, host);
+  console.log(`BerryPOS API: http://${host}:${PORT}`);
 }
 
 void bootstrap();

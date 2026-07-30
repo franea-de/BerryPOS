@@ -52,7 +52,16 @@ export interface PosBackend {
   bootstrap(): Promise<BootstrapData>;
   scan(code: string): Promise<ScanResult>;
   createProduct(draft: NewProductDraft): Promise<ScanResult>;
-  checkout(cart: Cart, payments: PaymentInput[]): Promise<CheckoutResult>;
+  checkout(
+    cart: Cart,
+    payments: PaymentInput[],
+    billing?: {
+      documentType: "boleta" | "factura";
+      customerRuc?: string;
+      customerName?: string;
+      paymentReference?: string;
+    },
+  ): Promise<CheckoutResult>;
   /** Merchandise reception: adds to the stock ledger. */
   receiveStock(input: ReceiveStockInput): Promise<{ stockMilli: number }>;
   login(userId: string, pin: string): Promise<UserSummary>;
@@ -77,6 +86,8 @@ export interface PosBackend {
   }): Promise<{ alreadyVoided: boolean }>;
   /** Print (if a printer is configured) and return the text preview. */
   printReceipt(saleId: string): Promise<PrintResult>;
+  sendRemoteScan(code: string): Promise<{ success: boolean }>;
+  getRemoteScans(): Promise<{ codes: string[] }>;
 }
 
 export interface PrintResult {
@@ -90,7 +101,12 @@ export interface PrintResult {
 // the Tauri asset protocol.
 const SERVER_URL =
   typeof window !== "undefined" &&
-  (window.location.port === "1421" || window.location.port === "1422")
+  (window.location.port === "1421" ||
+    window.location.port === "1422" ||
+    window.location.hostname.endsWith(".loca.lt") ||
+    window.location.hostname.endsWith(".ngrok-free.app") ||
+    window.location.hostname.endsWith(".ngrok.io") ||
+    window.location.hostname.endsWith(".trycloudflare.com"))
     ? ""
     : "http://127.0.0.1:1421";
 
@@ -122,8 +138,17 @@ export class HttpBackend implements PosBackend {
   createProduct(draft: NewProductDraft) {
     return this.call<ScanResult>("POST", "/products", draft);
   }
-  checkout(cart: Cart, payments: PaymentInput[]) {
-    return this.call<CheckoutResult>("POST", "/checkout", { cart, payments });
+  checkout(
+    cart: Cart,
+    payments: PaymentInput[],
+    billing?: {
+      documentType: "boleta" | "factura";
+      customerRuc?: string;
+      customerName?: string;
+      paymentReference?: string;
+    },
+  ) {
+    return this.call<CheckoutResult>("POST", "/checkout", { cart, payments, billing });
   }
   receiveStock(input: ReceiveStockInput) {
     return this.call<{ stockMilli: number }>("POST", "/receive", input);
@@ -157,6 +182,12 @@ export class HttpBackend implements PosBackend {
   }
   printReceipt(saleId: string) {
     return this.call<PrintResult>("POST", "/print/receipt", { saleId });
+  }
+  sendRemoteScan(code: string) {
+    return this.call<{ success: boolean }>("POST", "/scan/remote", { code });
+  }
+  getRemoteScans() {
+    return this.call<{ codes: string[] }>("GET", "/scan/remote");
   }
 }
 
@@ -286,6 +317,14 @@ export class MemoryBackend implements PosBackend {
     };
   }
 
+  async sendRemoteScan(code: string): Promise<{ success: boolean }> {
+    return { success: true };
+  }
+
+  async getRemoteScans(): Promise<{ codes: string[] }> {
+    return { codes: [] };
+  }
+
   async scan(code: string): Promise<ScanResult> {
     const scale = parseScaleEan13(code);
     if (scale) {
@@ -331,7 +370,16 @@ export class MemoryBackend implements PosBackend {
     return { stockMilli: product.stockMilli };
   }
 
-  async checkout(cart: Cart, payments: PaymentInput[]): Promise<CheckoutResult> {
+  async checkout(
+    cart: Cart,
+    payments: PaymentInput[],
+    billing?: {
+      documentType: "boleta" | "factura";
+      customerRuc?: string;
+      customerName?: string;
+      paymentReference?: string;
+    },
+  ): Promise<CheckoutResult> {
     if (!this.session) throw new Error("No hay un turno de caja abierto");
     const required = new Map<string, number>();
     for (const l of cart.lines) {

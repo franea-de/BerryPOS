@@ -10,7 +10,7 @@ export function createDb(url?: string): { db: ApiDb; pool: pg.Pool } {
     connectionString:
       url ??
       process.env.DATABASE_URL ??
-      "postgres://berrypos_app:berrypos@127.0.0.1:5433/berrypos",
+      "postgres://berrypos_app:berrypos@127.0.0.1:5434/berrypos",
   });
   return { db: drizzle(pool, { schema }), pool };
 }

@@ -7,6 +7,6 @@ export default defineConfig({
   dbCredentials: {
     url:
       process.env.DATABASE_ADMIN_URL ??
-      "postgres://postgres:berrypos@127.0.0.1:5433/berrypos",
+      "postgres://postgres:berrypos@127.0.0.1:5434/berrypos",
   },
 });

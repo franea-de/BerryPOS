@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
@@ -12,6 +12,10 @@ import {
   inboxEvents,
   stores,
   tenants,
+  cloudCatalogRevisions,
+  cloudCategories,
+  cloudProducts,
+  cloudProductBarcodes,
 } from "../src/db/schema.js";
 import { CloudReports } from "../src/reports/reports.js";
 import { SyncInbox } from "../src/sync/inbox.js";
@@ -19,9 +23,9 @@ import { SyncInbox } from "../src/sync/inbox.js";
 // Tests run in their own database so they never clobber dev data.
 const ADMIN_URL = (
   process.env.DATABASE_ADMIN_URL ??
-  "postgres://postgres:berrypos@127.0.0.1:5433/berrypos"
+  "postgres://postgres:berrypos@127.0.0.1:5434/berrypos"
 ).replace(/\/[^/]+$/, "/berrypos_test");
-const APP_URL = "postgres://berrypos_app:berrypos@127.0.0.1:5433/berrypos_test";
+const APP_URL = "postgres://berrypos_app:berrypos@127.0.0.1:5434/berrypos_test";
 
 const IDENTITY = { tenantId: "t-a", storeId: "s-1", deviceId: "caja-1" };
 
@@ -59,6 +63,7 @@ function saleEvent(eventId: string, seq: number, reportedTotalCents = 850) {
 const E1 = "0d6a2cbe-9f7d-4a1a-8a44-aaaaaaaaaaa1";
 const E2 = "0d6a2cbe-9f7d-4a1a-8a44-aaaaaaaaaaa2";
 const E3 = "0d6a2cbe-9f7d-4a1a-8a44-aaaaaaaaaaa3";
+const E4 = "0d6a2cbe-9f7d-4a1a-8a44-aaaaaaaaaaa4";
 
 let adminPool: pg.Pool;
 let adminDb: ReturnType<typeof drizzle<typeof schema>>;
@@ -247,4 +252,88 @@ describe("SyncInbox.push", () => {
     // The admin (owner) sees both — the data is there, just isolated.
     expect(await adminDb.select().from(inboxEvents)).toHaveLength(2);
   });
+
+  it("projects product_created and product_barcode_added events into cloud catalog and increments revision", async () => {
+    await adminDb.insert(cloudCatalogRevisions).values({ tenantId: "t-a", revision: 10 }).onConflictDoUpdate({ target: cloudCatalogRevisions.tenantId, set: { revision: 10 } });
+
+    const createEvt = {
+      ...envelope(E3, 0),
+      type: "product_created" as const,
+      product: {
+        id: "p-test-1",
+        name: "New Local Prod",
+        isWeighable: false,
+        unitPriceCents: 500,
+        taxCodes: ["IGV18"],
+        active: true,
+        barcodes: ["9999999999999"],
+      },
+    };
+
+    const r1 = await inbox.push(IDENTITY, { events: [createEvt] });
+    expect(r1.accepted).toHaveLength(1);
+
+    // Verify projected in cloudProducts
+    const [p] = await adminDb.select().from(cloudProducts).where(eq(cloudProducts.id, "p-test-1"));
+    expect(p).toBeDefined();
+    expect(p?.name).toBe("New Local Prod");
+
+    // Verify projected in cloudProductBarcodes
+    const [b] = await adminDb.select().from(cloudProductBarcodes).where(eq(cloudProductBarcodes.barcode, "9999999999999"));
+    expect(b).toBeDefined();
+    expect(b?.productId).toBe("p-test-1");
+
+    // Verify catalog revision incremented from 10 to 11
+    const [rev1] = await adminDb.select().from(cloudCatalogRevisions).where(eq(cloudCatalogRevisions.tenantId, "t-a"));
+    expect(rev1?.revision).toBe(11);
+
+    // Test barcode addition
+    const addBarcodeEvt = {
+      ...envelope(E4, 1),
+      type: "product_barcode_added" as const,
+      productId: "p-test-1",
+      barcode: "8888888888888",
+    };
+
+    const r2 = await inbox.push(IDENTITY, { events: [addBarcodeEvt] });
+    expect(r2.accepted).toHaveLength(1);
+
+    // Verify barcode registered
+    const [b2] = await adminDb.select().from(cloudProductBarcodes).where(eq(cloudProductBarcodes.barcode, "8888888888888"));
+    expect(b2).toBeDefined();
+
+    // Verify revision incremented to 12
+    const [rev2] = await adminDb.select().from(cloudCatalogRevisions).where(eq(cloudCatalogRevisions.tenantId, "t-a"));
+    expect(rev2?.revision).toBe(12);
+  });
 });
+
+describe("SyncInbox.pull", () => {
+  it("returns up_to_date if the store revision matches or is newer", async () => {
+    await adminDb.insert(tenants).values({ id: "t-pull-1", name: "Tenant Pull 1", adminToken: "t-pull-admin-1" }).onConflictDoNothing();
+    await adminDb.insert(cloudCatalogRevisions).values({ tenantId: "t-pull-1", revision: 5 }).onConflictDoUpdate({ target: cloudCatalogRevisions.tenantId, set: { revision: 5 } });
+
+    const result = await inbox.pull({ tenantId: "t-pull-1" }, { tenantId: "t-pull-1", storeId: "s-1", sinceRevision: 5 });
+    expect(result).toEqual({ status: "up_to_date", revision: 5 });
+  });
+
+  it("returns snapshot if the cloud revision is newer", async () => {
+    await adminDb.insert(tenants).values({ id: "t-pull-2", name: "Tenant Pull 2", adminToken: "t-pull-admin-2" }).onConflictDoNothing();
+    await adminDb.insert(cloudCatalogRevisions).values({ tenantId: "t-pull-2", revision: 6 }).onConflictDoUpdate({ target: cloudCatalogRevisions.tenantId, set: { revision: 6 } });
+    await adminDb.insert(cloudCategories).values({ tenantId: "t-pull-2", id: "c1", name: "Cat 1" }).onConflictDoNothing();
+    await adminDb.insert(cloudProducts).values({ tenantId: "t-pull-2", id: "p1", name: "Prod 1", isWeighable: false, unitPriceCents: 100, taxCodes: ["IGV18"], active: true }).onConflictDoNothing();
+    await adminDb.insert(cloudProductBarcodes).values({ tenantId: "t-pull-2", barcode: "12345", productId: "p1" }).onConflictDoNothing();
+
+    const result = await inbox.pull({ tenantId: "t-pull-2" }, { tenantId: "t-pull-2", storeId: "s-1", sinceRevision: 2 });
+    expect(result.status).toBe("snapshot");
+    if (result.status === "snapshot") {
+      expect(result.snapshot.revision).toBe(6);
+      expect(result.snapshot.products).toHaveLength(1);
+      expect(result.snapshot.products[0]?.name).toBe("Prod 1");
+      expect(result.snapshot.products[0]?.barcodes).toEqual(["12345"]);
+      expect(result.snapshot.categories).toHaveLength(1);
+      expect(result.snapshot.categories[0]?.name).toBe("Cat 1");
+    }
+  });
+});
+

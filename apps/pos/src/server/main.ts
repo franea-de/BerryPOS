@@ -46,6 +46,8 @@ const syncStatus: SyncStatus = CLOUD_URL
   ? startSyncLoop(db, {
       cloudUrl: CLOUD_URL,
       apiKey: process.env.BERRYPOS_API_KEY ?? "dev-key",
+      tenantId: CTX.tenantId,
+      storeId: CTX.storeId,
     })
   : {
       enabled: false,
@@ -95,6 +97,9 @@ async function serveStatic(
     const body = await readFile(file);
     res.writeHead(200, {
       "Content-Type": MIME[extname(file)] ?? "application/octet-stream",
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0"
     });
     res.end(body);
     return true;
@@ -109,6 +114,7 @@ async function serveStatic(
  * carry it. Requests from this machine (desktop app) stay token-free.
  */
 const sessionTokens = new Set<string>();
+const remoteScans: string[] = [];
 
 function isLoopback(req: http.IncomingMessage): boolean {
   const addr = req.socket.remoteAddress ?? "";
@@ -216,6 +222,17 @@ async function handle(
       if (typeof body.code !== "string") throw new Error("code is required");
       return service.scan(body.code);
     }
+    case "POST /scan/remote": {
+      const body = (await readBody(req)) as { code?: string };
+      if (typeof body.code !== "string") throw new Error("code is required");
+      remoteScans.push(body.code);
+      return { success: true };
+    }
+    case "GET /scan/remote": {
+      const codes = [...remoteScans];
+      remoteScans.length = 0;
+      return { codes };
+    }
     case "POST /products": {
       const body = (await readBody(req)) as Parameters<
         PosService["registerProduct"]
@@ -245,8 +262,9 @@ async function handle(
       const body = (await readBody(req)) as {
         cart: Parameters<PosService["checkout"]>[0];
         payments: Parameters<PosService["checkout"]>[1];
+        billing?: Parameters<PosService["checkout"]>[2];
       };
-      return service.checkout(body.cart, body.payments);
+      return service.checkout(body.cart, body.payments, body.billing);
     }
     default:
       return undefined;

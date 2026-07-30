@@ -77,7 +77,15 @@ export default function App() {
   return (
     <div className="pos">
       <header className="pos-header">
-        <h1>🍓 BerryPOS</h1>
+        <h1 style={{ display: "flex", alignItems: "center" }}>
+          <img
+            src="/logo.png"
+            alt=""
+            onError={(e) => (e.currentTarget.style.display = "none")}
+            style={{ height: "24px", marginRight: "8px", display: "inline-block" }}
+          />
+          🍓 BerryPOS
+        </h1>
         <nav className="pos-tabs">
           <button className={mode === "sale" ? "active" : ""} onClick={() => setMode("sale")}>
             Venta
