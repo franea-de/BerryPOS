@@ -6,11 +6,14 @@ export type ApiDb = NodePgDatabase<typeof schema>;
 
 /** App connection: the non-owner role, so RLS policies apply. */
 export function createDb(url?: string): { db: ApiDb; pool: pg.Pool } {
+  const connectionString =
+    url ??
+    process.env.DATABASE_URL ??
+    "postgres://berrypos_app:berrypos@127.0.0.1:5434/berrypos";
+  const isSsl = connectionString.includes("sslmode=require") || connectionString.includes(".neon.tech");
   const pool = new pg.Pool({
-    connectionString:
-      url ??
-      process.env.DATABASE_URL ??
-      "postgres://berrypos_app:berrypos@127.0.0.1:5434/berrypos",
+    connectionString,
+    ssl: isSsl ? { rejectUnauthorized: false } : undefined,
   });
   return { db: drizzle(pool, { schema }), pool };
 }
