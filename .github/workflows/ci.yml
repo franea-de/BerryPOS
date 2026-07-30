@@ -24,7 +24,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_ADMIN_URL: postgres://postgres:berrypos@127.0.0.1:5433/berrypos
-      DATABASE_URL: postgres://berrypos_app:berrypos@127.0.0.1:5433/berrypos
+      DATABASE_URL: postgres://berrypos_app:BerryPOS_Secure_1234_App!@127.0.0.1:5433/berrypos
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

@@ -9,7 +9,7 @@ export function createDb(url?: string): { db: ApiDb; pool: pg.Pool } {
   const connectionString =
     url ??
     process.env.DATABASE_URL ??
-    "postgres://berrypos_app:berrypos@127.0.0.1:5434/berrypos";
+    "postgres://berrypos_app:BerryPOS_Secure_1234_App!@127.0.0.1:5434/berrypos";
   const isSsl = connectionString.includes("sslmode=require") || connectionString.includes(".neon.tech");
   const pool = new pg.Pool({
     connectionString,

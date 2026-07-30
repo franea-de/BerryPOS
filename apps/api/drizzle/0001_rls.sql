@@ -1,7 +1,8 @@
 -- Non-owner application role: RLS policies apply to it (owners bypass RLS).
 DO $$ BEGIN
-  CREATE ROLE berrypos_app LOGIN PASSWORD 'berrypos';
-EXCEPTION WHEN duplicate_object THEN NULL;
+  CREATE ROLE berrypos_app LOGIN PASSWORD 'BerryPOS_Secure_1234_App!';
+EXCEPTION WHEN duplicate_object THEN
+  ALTER ROLE berrypos_app WITH PASSWORD 'BerryPOS_Secure_1234_App!';
 END $$;
 --> statement-breakpoint
 GRANT USAGE ON SCHEMA public TO berrypos_app;
