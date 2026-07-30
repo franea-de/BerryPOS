@@ -51,7 +51,7 @@ export default function MobileApp() {
       if (mode === "sale") {
         await backend.sendRemoteScan(code);
         if (navigator.vibrate) navigator.vibrate(80);
-        const localProd = boot.products.find(
+        const localProd = boot?.products.find(
           (p) => p.barcodes.includes(code) || p.scaleItemCode === code,
         );
         flash(`Enviado a caja: ${localProd ? localProd.name : code}`);

@@ -133,7 +133,7 @@ Pregunta del usuario: "${message}"`;
         );
 
         if (res.ok) {
-          const data = await res.json();
+          const data = (await res.json()) as any;
           const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
           if (reply) {
             return { reply };

@@ -17,9 +17,9 @@ export interface TicketLine {
 
 export interface TicketData {
   storeName: string;
-  storeAddress?: string;
-  storeCity?: string;
-  storeRuc?: string;
+  storeAddress?: string | undefined;
+  storeCity?: string | undefined;
+  storeRuc?: string | undefined;
   deviceId: string;
   cashierName: string;
   saleId: string;
@@ -35,9 +35,9 @@ export interface TicketData {
   voided: boolean;
   documentType: "boleta" | "factura";
   documentNumber: string;
-  customerRuc?: string;
-  customerName?: string;
-  paymentReference?: string;
+  customerRuc?: string | undefined;
+  customerName?: string | undefined;
+  paymentReference?: string | undefined;
 }
 
 const METHOD_LABEL: Record<string, string> = {
@@ -191,13 +191,12 @@ export function renderTicketEscPos(data: TicketData, width = 42): Uint8Array {
   push(ESC, 0x45, 0x01); // bold on
   text(ascii(data.storeName.toUpperCase()) + "\n");
   push(ESC, 0x45, 0x00); // bold off
-  if (data.storeLine2) text(ascii(data.storeLine2) + "\n");
   push(ESC, 0x61, 0x00); // left
 
-  // Body reuses the text layout minus the header we just printed.
+  // Body reuses the text layout minus the header we just printed (storeName).
   const body = renderTicketText(data, width)
     .split("\n")
-    .slice(data.storeLine2 ? 2 : 1)
+    .slice(1)
     .join("\n");
   text(body + "\n");
 

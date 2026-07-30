@@ -303,12 +303,22 @@ export default function SaleView({ backend, boot, user, refresh }: Props) {
     }
 
     try {
-      const result = await backend.checkout(cart, payments, {
+      const billing: {
+        documentType: "boleta" | "factura";
+        customerRuc?: string;
+        customerName?: string;
+        paymentReference?: string;
+      } = {
         documentType: docType,
-        customerRuc: docType === "factura" ? customerRuc : undefined,
-        customerName: docType === "factura" ? customerName : undefined,
-        paymentReference,
-      });
+      };
+      if (docType === "factura") {
+        if (customerRuc) billing.customerRuc = customerRuc;
+        if (customerName) billing.customerName = customerName;
+      }
+      if (paymentReference) {
+        billing.paymentReference = paymentReference;
+      }
+      const result = await backend.checkout(cart, payments, billing);
       setLastCart(cart);
       setReceipt(result);
       setCart(EMPTY_CART);

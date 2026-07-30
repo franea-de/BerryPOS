@@ -327,7 +327,7 @@ export class PosService {
     let sequence = 0;
     for (const s of allSales) {
       try {
-        const sInput = JSON.parse(s.input);
+        const sInput = s.input as any;
         const sDocType = sInput.documentType ?? "boleta";
         if (sDocType === docType) {
           sequence++;
