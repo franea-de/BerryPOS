@@ -25,7 +25,10 @@ const ADMIN_URL = (
   process.env.DATABASE_ADMIN_URL ??
   "postgres://postgres:berrypos@127.0.0.1:5434/berrypos"
 ).replace(/\/[^/]+$/, "/berrypos_test");
-const APP_URL = "postgres://berrypos_app:berrypos@127.0.0.1:5434/berrypos_test";
+const APP_URL = (
+  process.env.DATABASE_URL ??
+  "postgres://berrypos_app:berrypos@127.0.0.1:5434/berrypos"
+).replace(/\/[^/]+$/, "/berrypos_test");
 
 const IDENTITY = { tenantId: "t-a", storeId: "s-1", deviceId: "caja-1" };
 
