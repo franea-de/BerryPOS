@@ -8,11 +8,23 @@ if (Test-Path $outputDir) {
 }
 New-Item -ItemType Directory -Path $outputDir | Out-Null
 
-# 1. Copiar Ejecutable Tauri, .env y package.json
+# 1. Copiar Ejecutable Tauri y .env
 Write-Host "Copiando ejecutable de Windows y configuración..." -ForegroundColor Green
 Copy-Item (Join-Path $sourceDir "apps\pos\src-tauri\target\release\berrypos.exe") $outputDir
 Copy-Item (Join-Path $sourceDir "apps\pos\src-tauri\target\release\.env") $outputDir
-Copy-Item (Join-Path $sourceDir "apps\pos\package.json") $outputDir
+
+# Crear un package.json limpio para la versión portátil (sin workspace de pnpm)
+Write-Host "Creando package.json limpio..." -ForegroundColor Green
+$pkgJson = @{
+    name = "berrypos-pos-portable"
+    version = "0.1.0"
+    private = $true
+    type = "module"
+    dependencies = @{
+        "better-sqlite3" = "12.2.0"
+    }
+} | ConvertTo-Json -Depth 4
+$pkgJson | Out-File -FilePath (Join-Path $outputDir "package.json") -Encoding utf8
 
 # 2. Copiar Servidor Backend
 Write-Host "Copiando servidor backend..." -ForegroundColor Green
@@ -24,10 +36,14 @@ Write-Host "Copiando frontend UI..." -ForegroundColor Green
 New-Item -ItemType Directory -Path (Join-Path $outputDir "dist") | Out-Null
 Copy-Item -Recurse (Join-Path $sourceDir "apps\pos\dist\*") (Join-Path $outputDir "dist")
 
-# 4. Copiar Node Modules locales de apps/pos (incluye better-sqlite3)
-Write-Host "Copiando dependencias nativas de base de datos..." -ForegroundColor Green
-New-Item -ItemType Directory -Path (Join-Path $outputDir "node_modules") | Out-Null
-Copy-Item -Recurse (Join-Path $sourceDir "apps\pos\node_modules\*") (Join-Path $outputDir "node_modules")
+# Copiar Migraciones de Base de Datos SQLite (Drizzle)
+Write-Host "Copiando migraciones de base de datos local..." -ForegroundColor Green
+New-Item -ItemType Directory -Path (Join-Path $outputDir "drizzle") | Out-Null
+Copy-Item -Recurse (Join-Path $sourceDir "apps\pos\drizzle\*") (Join-Path $outputDir "drizzle")
+
+# 4. Instalar dependencias nativas
+Write-Host "Instalando base de datos SQLite nativa en la carpeta portátil..." -ForegroundColor Green
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c npm install --prefix `"$outputDir`" --omit=dev" -NoNewWindow -Wait
 
 Write-Host "`n¡Empaquetado completado con éxito! Carpeta lista en: $outputDir" -ForegroundColor Yellow
 Write-Host "Puedes copiar esta carpeta a una memoria USB y llevarla a cualquier otra PC con Windows." -ForegroundColor Green
