@@ -31,6 +31,28 @@ fn spawn_server() -> Option<Child> {
     let workdir = script.parent()?.parent()?.to_path_buf();
     let mut cmd = Command::new("node");
     cmd.arg(&script).current_dir(&workdir);
+
+    // Load local environment variables from .env file next to the executable
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let env_file = dir.join(".env");
+            if env_file.exists() {
+                if let Ok(content) = std::fs::read_to_string(&env_file) {
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.is_empty() || trimmed.starts_with('#') {
+                            continue;
+                        }
+                        if let Some((key, val)) = trimmed.split_once('=') {
+                            let clean_val = val.trim().trim_matches('"').trim_matches('\'');
+                            cmd.env(key.trim(), clean_val);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
