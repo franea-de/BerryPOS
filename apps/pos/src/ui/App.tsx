@@ -19,6 +19,20 @@ export default function App() {
   const [boot, setBoot] = useState<BootstrapData | null>(null);
   const [user, setUser] = useState<UserSummary | null>(null);
   const [mode, setMode] = useState<Mode>("sale");
+  const [showMobileModal, setShowMobileModal] = useState(false);
+  const [lanIps, setLanIps] = useState<string[]>([]);
+
+  const openMobileScanner = async () => {
+    if (backend) {
+      try {
+        const res = await backend.getLanIps();
+        setLanIps(res.ips);
+        setShowMobileModal(true);
+      } catch (e) {
+        alert(e instanceof Error ? e.message : "Error al obtener IPs de red");
+      }
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -108,6 +122,25 @@ export default function App() {
             </button>
           )}
         </nav>
+        <button
+          className="mobile-scan-btn"
+          style={{
+            marginLeft: "12px",
+            backgroundColor: "#2c3e50",
+            color: "white",
+            border: "none",
+            borderRadius: "4px",
+            padding: "6px 12px",
+            fontSize: "13px",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px"
+          }}
+          onClick={openMobileScanner}
+        >
+          📱 Escáner Móvil
+        </button>
         <span className="pos-mode">
           {user.name}
           {boot.session ? ` · turno de ${boot.session.cashierName}` : " · sin turno"}
@@ -131,6 +164,87 @@ export default function App() {
       {canSeeSummary && (
         <div className="view" hidden={mode !== "summary"}>
           <SummaryView backend={backend} boot={boot} />
+        </div>
+      )}
+
+      {showMobileModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10000,
+            padding: "20px",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#1e272e",
+              color: "white",
+              borderRadius: "8px",
+              padding: "24px",
+              maxWidth: "500px",
+              width: "100%",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+              position: "relative",
+            }}
+          >
+            <h2 style={{ marginTop: 0, fontSize: "20px", display: "flex", alignItems: "center", gap: "8px" }}>
+              📱 Vincular Escáner Móvil
+            </h2>
+            <p style={{ color: "#bdc581", fontSize: "14px", lineHeight: "1.4" }}>
+              Asegúrate de que tu celular esté conectado a la **misma red Wi-Fi** que esta computadora. Escanea el código QR o ingresa a la dirección desde tu navegador móvil:
+            </p>
+            
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px", margin: "20px 0" }}>
+              {lanIps.length > 0 ? (
+                lanIps.map((ipUrl, idx) => (
+                  <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", width: "100%" }}>
+                    <div style={{ backgroundColor: "white", padding: "8px", borderRadius: "4px" }}>
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(ipUrl)}`}
+                        alt="QR Scanner Link"
+                        style={{ width: "160px", height: "160px", display: "block" }}
+                      />
+                    </div>
+                    <a
+                      href={ipUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "#3498db", fontSize: "12px", wordBreak: "break-all", textAlign: "center", textDecoration: "none" }}
+                    >
+                      {ipUrl}
+                    </a>
+                  </div>
+                ))
+              ) : (
+                <p style={{ color: "#e74c3c" }}>No se detectaron interfaces de red activas.</p>
+              )}
+            </div>
+
+            <div style={{ borderTop: "1px solid #3d4e5d", paddingTop: "16px", display: "flex", justifyContent: "flex-end" }}>
+              <button
+                style={{
+                  backgroundColor: "#e74c3c",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "4px",
+                  padding: "8px 16px",
+                  fontSize: "14px",
+                  cursor: "pointer",
+                }}
+                onClick={() => setShowMobileModal(false)}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

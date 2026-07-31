@@ -209,6 +209,13 @@ async function handle(
       return service.dailySummary();
     case "GET /sync/status":
       return { ...syncStatus, pending: getPendingEvents(db).length };
+    case "GET /lan-ips": {
+      const ips = Object.values(os.networkInterfaces())
+        .flatMap((list) => list ?? [])
+        .filter((i) => i.family === "IPv4" && !i.internal)
+        .map((i) => `https://${i.address}:${TLS_PORT}/movil`);
+      return { ips };
+    }
     case "GET /sales/recent":
       return service.recentSales();
     case "POST /sales/void": {

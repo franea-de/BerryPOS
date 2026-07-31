@@ -88,6 +88,7 @@ export interface PosBackend {
   printReceipt(saleId: string): Promise<PrintResult>;
   sendRemoteScan(code: string): Promise<{ success: boolean }>;
   getRemoteScans(): Promise<{ codes: string[] }>;
+  getLanIps(): Promise<{ ips: string[] }>;
 }
 
 export interface PrintResult {
@@ -188,6 +189,9 @@ export class HttpBackend implements PosBackend {
   }
   getRemoteScans() {
     return this.call<{ codes: string[] }>("GET", "/scan/remote");
+  }
+  getLanIps() {
+    return this.call<{ ips: string[] }>("GET", "/lan-ips");
   }
 }
 
@@ -323,6 +327,10 @@ export class MemoryBackend implements PosBackend {
 
   async getRemoteScans(): Promise<{ codes: string[] }> {
     return { codes: [] };
+  }
+
+  async getLanIps(): Promise<{ ips: string[] }> {
+    return { ips: ["https://127.0.0.1:1422/movil"] };
   }
 
   async scan(code: string): Promise<ScanResult> {
